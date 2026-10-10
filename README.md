@@ -47,6 +47,9 @@ kaoyan-agents/
 │   ├── alembic/                # 数据库迁移
 │   └── tests/
 └── frontend/                   # Next.js 工作台
+    ├── src/app/                # 工作台 / 多智能体对话 / 学习计划 / 系统总览
+    ├── src/components/         # 面板、智能体产出卡片与基础 UI
+    └── src/lib/                # 接口封装、SSE 解析与类型定义
 ```
 
 ## 快速开始
@@ -86,7 +89,27 @@ uvicorn app.main:app --reload --port 8000
 - `CELERY__TASK_ALWAYS_EAGER=true`
 - `LLM__DEFAULT_PROVIDER=stub`（离线桩，无需密钥）
 
-### 4. 启动定时任务（提醒督促）
+### 4. 启动前端工作台
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:3000
+```
+
+前端通过 `NEXT_PUBLIC_API_BASE` 直连后端（默认 `http://localhost:8000`）。后端已放行
+`localhost:3000` 跨域，因此不做反向代理 —— SSE 流式响应不会被中间层缓冲。
+
+| 页面 | 路径 | 内容 |
+| --- | --- | --- |
+| 工作台 | `/` | 任务统计、计划进度、最近提醒、一键生成计划 |
+| 多智能体对话 | `/chat` | SSE 流式协作过程、智能体产出卡片、历史会话 |
+| 学习计划 | `/plan` | 任务看板与打卡、备考目标与档案编辑、提醒督促 |
+| 系统总览 | `/system` | 角色、提示词、工作流拓扑、定时计划、知识库检索 |
+
+首次进入输入任意用户名即可：已存在则直接登录，不存在则自动注册一个带默认档案的账号。
+
+### 5. 启动定时任务（提醒督促）
 
 ```bash
 cd backend
@@ -98,15 +121,15 @@ celery -A app.tasks.celery_app:celery_app beat -l info
 
 本地开发可设 `CELERY__TASK_ALWAYS_EAGER=true`，任务会在调用处直接同步执行，无需 Redis。
 
-### 5. 一键启动全部容器
+### 6. 一键启动全部容器
 
 ```bash
 docker compose --profile app up -d
 ```
 
-包含 backend、worker、beat 三个应用容器与全部基础设施。
+包含 frontend、backend、worker、beat 四个应用容器与全部基础设施。
 
-### 6. 接入 LangFuse 可观测性（可选）
+### 7. 接入 LangFuse 可观测性（可选）
 
 未配置密钥时全部埋点都是空操作，不影响任何功能。
 
@@ -145,6 +168,7 @@ npm config set registry https://registry.npmmirror.com
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/users` | 创建用户（可同时初始化学习档案） |
+| GET | `/api/users/lookup?username=` | 按用户名找回账号（前端登录用） |
 | GET | `/api/users/{id}` | 查询用户与档案 |
 | PATCH | `/api/users/{id}` | 更新用户与学习档案 |
 | POST | `/api/targets` | 创建备考目标与科目 |
@@ -183,5 +207,5 @@ npm config set registry https://registry.npmmirror.com
 | 7 | Celery 提醒督促定时任务 | 已完成 |
 | 8 | FastAPI 业务接口层（含 SSE 流式） | 已完成 |
 | 9 | LangFuse 可观测性接入 | 已完成 |
-| 10 | Next.js 前端工作台 | 待开始 |
+| 10 | Next.js 前端工作台 | 已完成 |
 | 11 | 测试、镜像与部署文档 | 待开始 |

@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1100px 620px at 12% -8%, rgba(79, 70, 229, 0.16), transparent 62%),
+    radial-gradient(900px 540px at 100% 0%, rgba(16, 185, 129, 0.12), transparent 58%),
+    #060911;
+  color: #e2e8f0;
+  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.35);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+  background-clip: content-box;
+}
+
+/* 流式输出时的光标与卡片出现动画 */
+@keyframes kaoyan-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: kaoyan-fade-up 0.24s ease-out both;
+}
+
+@keyframes kaoyan-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.animate-pulse-soft {
+  animation: kaoyan-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes kaoyan-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.streaming-caret::after {
+  content: '▍';
+  margin-left: 2px;
+  animation: kaoyan-caret 1s steps(1) infinite;
+  color: #818cf8;
+}

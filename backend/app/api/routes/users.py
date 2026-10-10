@@ -46,6 +46,18 @@ async def create_user(payload: UserCreate, session: SessionDep) -> User:
     return created
 
 
+# 注意：/lookup 必须声明在 /{user_id} 之前，
+# 否则 FastAPI 会先匹配到路径参数并因无法解析为整数而返回 422。
+@router.get("/lookup", response_model=UserRead, summary="按用户名查询用户")
+async def lookup_user(username: str, session: SessionDep) -> User:
+    """按用户名找回账号，供前端「登录」使用。"""
+
+    user = await session.scalar(select(User).where(User.username == username))
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user
+
+
 @router.get("/{user_id}", response_model=UserRead, summary="查询用户")
 async def get_user(user_id: int, session: SessionDep) -> User:
     """读取用户及其学习档案。"""

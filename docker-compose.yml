@@ -173,6 +173,20 @@ services:
         condition: service_healthy
     command: ['celery', '-A', 'app.tasks.celery_app:celery_app', 'beat', '-l', 'info']
 
+  frontend:
+    profiles: ['app']
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 浏览器直连后端的地址，必须是宿主机可访问的地址（编译期注入）
+        NEXT_PUBLIC_API_BASE: ${FRONTEND__API_BASE:-http://localhost:8000}
+    container_name: kaoyan-frontend
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
   redis_data:

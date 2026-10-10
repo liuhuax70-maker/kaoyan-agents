@@ -61,6 +61,17 @@ async def test_create_and_read_user(client: AsyncClient) -> None:
     assert body["profile"]["preferred_slots"] == ["上午"]
 
 
+async def test_lookup_user_by_username(client: AsyncClient) -> None:
+    user_id = await _create_user(client, username="lookup_target")
+
+    found = await client.get("/api/users/lookup", params={"username": "lookup_target"})
+    assert found.status_code == 200
+    assert found.json()["id"] == user_id
+
+    missing = await client.get("/api/users/lookup", params={"username": "nobody"})
+    assert missing.status_code == 404
+
+
 async def test_duplicate_username_returns_conflict(client: AsyncClient) -> None:
     await _create_user(client, username="duplicated")
     response = await client.post("/api/users", json={"username": "duplicated"})
