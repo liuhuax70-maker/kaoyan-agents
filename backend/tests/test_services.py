@@ -10,6 +10,8 @@ from app.db.models import (
     ExamType,
     LearnerProfile,
     PlanStage,
+    PlanStatus,
+    StudyPlan,
     StudyStreak,
     StudyTask,
     Subject,
@@ -20,6 +22,7 @@ from app.db.models import (
 from app.schemas import PlanDraft
 from app.services import (
     active_user_ids,
+    collect_progress,
     collect_user_tasks,
     load_latest_plan_snapshot,
     load_learner_snapshot,
@@ -277,3 +280,55 @@ async def test_task_status_is_persisted_as_enum_value(app_db: AsyncSession) -> N
 
     tasks = list(await app_db.scalars(select(StudyTask).where(StudyTask.plan_id == plan.id)))
     assert all(task.status is TaskStatus.TODO for task in tasks)
+
+
+async def test_persist_plan_draft_supersedes_previous_plan(app_db: AsyncSession) -> None:
+    """重新规划应归档旧计划并递增版本号，保证同一目标下只有一个 ACTIVE 计划。"""
+
+    ids = await _seed(app_db)
+
+    first = await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(30), today=TODAY
+    )
+    second = await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(90), today=TODAY
+    )
+    await app_db.commit()
+
+    assert first.version == 1
+    assert second.version == 2
+    assert first.status is PlanStatus.ARCHIVED
+    assert second.status is PlanStatus.ACTIVE
+
+    active = list(
+        await app_db.scalars(
+            select(StudyPlan).where(
+                StudyPlan.user_id == ids["user"],
+                StudyPlan.status == PlanStatus.ACTIVE,
+            )
+        )
+    )
+    assert len(active) == 1
+    assert active[0].id == second.id
+
+
+async def test_collect_progress_ignores_archived_plan_tasks(app_db: AsyncSession) -> None:
+    """旧计划被归档后，其任务不应再计入当前进度，否则完成度会被历史任务稀释。"""
+
+    ids = await _seed(app_db)
+
+    await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(30), today=TODAY
+    )
+    await app_db.commit()
+    before = await collect_progress(app_db, ids["user"], today=TODAY)
+    assert before.total_tasks > 0
+
+    await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(30), today=TODAY
+    )
+    await app_db.commit()
+    after = await collect_progress(app_db, ids["user"], today=TODAY)
+
+    assert after.total_tasks == before.total_tasks
+    assert after.completion_rate == before.completion_rate

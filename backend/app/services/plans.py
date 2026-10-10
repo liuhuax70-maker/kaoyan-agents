@@ -6,7 +6,7 @@
 
 from datetime import date, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -31,6 +31,9 @@ async def persist_plan_draft(
     start = today or utc_today()
     horizon = max(draft.horizon_days, 1)
 
+    await _archive_active_plans(session, user_id=user_id, target_id=target_id)
+    version = await _next_version(session, user_id=user_id, target_id=target_id)
+
     plan = StudyPlan(
         user_id=user_id,
         target_id=target_id,
@@ -42,6 +45,7 @@ async def persist_plan_draft(
         end_date=start + timedelta(days=horizon),
         total_hours=round(sum(stage.target_hours for stage in draft.stages), 1),
         status=PlanStatus.ACTIVE,
+        version=version,
         generated_by=generated_by,
         meta={"notes": draft.notes, "daily_hours": draft.daily_hours},
     )
@@ -106,6 +110,46 @@ async def persist_plan_draft(
         task_count,
     )
     return plan
+
+
+async def _archive_active_plans(
+    session: AsyncSession, *, user_id: int, target_id: int
+) -> int:
+    """归档同一目标下仍在生效的旧计划。
+
+    重新规划意味着旧计划作废。若不归档，同一目标会同时存在多个 ACTIVE 计划，
+    进度统计会把已作废任务一并计入，完成度被稀释。
+    """
+
+    previous = list(
+        await session.scalars(
+            select(StudyPlan).where(
+                StudyPlan.user_id == user_id,
+                StudyPlan.target_id == target_id,
+                StudyPlan.status == PlanStatus.ACTIVE,
+            )
+        )
+    )
+    for item in previous:
+        item.status = PlanStatus.ARCHIVED
+
+    if previous:
+        await session.flush()
+        logger.info(
+            "已归档 %d 个旧计划（user=%s target=%s）", len(previous), user_id, target_id
+        )
+    return len(previous)
+
+
+async def _next_version(session: AsyncSession, *, user_id: int, target_id: int) -> int:
+    """返回该目标下计划的下一个版本号。"""
+
+    latest = await session.scalar(
+        select(func.max(StudyPlan.version)).where(
+            StudyPlan.user_id == user_id, StudyPlan.target_id == target_id
+        )
+    )
+    return int(latest or 0) + 1
 
 
 async def _subject_index(session: AsyncSession, target_id: int) -> dict[str, int]:

@@ -40,7 +40,7 @@ services:
       retries: 10
 
   etcd:
-    image: quay.io/coreos/etcd:v3.5.5
+    image: quay.io/coreos/etcd:v3.5.16
     container_name: kaoyan-etcd
     environment:
       ETCD_AUTO_COMPACTION_MODE: revision
@@ -57,11 +57,13 @@ services:
       retries: 3
 
   minio:
-    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     container_name: kaoyan-minio
     environment:
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
+      # 新版 MinIO 已移除 MINIO_ACCESS_KEY / MINIO_SECRET_KEY，
+      # 继续使用会导致启动直接失败，必须改用 ROOT 变量名。
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     command: minio server /minio_data --console-address ":9001"
     ports:
       - '9000:9000'
@@ -75,7 +77,8 @@ services:
       retries: 3
 
   milvus:
-    image: milvusdb/milvus:v2.4.13
+    # 与本仓库的 pymilvus 2.6.x 客户端配套使用
+    image: milvusdb/milvus:v2.5.4
     container_name: kaoyan-milvus
     command: ['milvus', 'run', 'standalone']
     environment:
@@ -103,6 +106,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
     container_name: kaoyan-backend
     env_file:
       - .env
@@ -181,6 +186,7 @@ services:
       args:
         # 浏览器直连后端的地址，必须是宿主机可访问的地址（编译期注入）
         NEXT_PUBLIC_API_BASE: ${FRONTEND__API_BASE:-http://localhost:8000}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
     container_name: kaoyan-frontend
     ports:
       - '3000:3000'

@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.timeutil import days_ago, utc_today
 from app.db.models import (
     ExamTarget,
+    PlanStatus,
     StudyPlan,
     StudyStreak,
     StudyTask,
@@ -51,13 +52,22 @@ async def collect_progress(
     *,
     today: date | None = None,
 ) -> ProgressSnapshot:
-    """统计任务完成度、近 7 天学习时长与连续学习情况。"""
+    """统计任务完成度、近 7 天学习时长与连续学习情况。
+
+    只统计未归档计划下的任务：旧计划被重规划取代后，其任务不应再计入
+    当前进度，否则每重新生成一次计划，完成度都会被历史任务稀释。
+    """
 
     reference = today or utc_today()
 
     rows = (
         await session.execute(
-            select(StudyTask.status, StudyTask.planned_date).where(StudyTask.user_id == user_id)
+            select(StudyTask.status, StudyTask.planned_date)
+            .join(StudyPlan, StudyPlan.id == StudyTask.plan_id)
+            .where(
+                StudyTask.user_id == user_id,
+                StudyPlan.status != PlanStatus.ARCHIVED,
+            )
         )
     ).all()
 

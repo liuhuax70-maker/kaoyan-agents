@@ -2,7 +2,11 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund || npm install --no-audit --no-fund
+
+# 国内构建可通过 --build-arg NPM_REGISTRY=https://registry.npmmirror.com 加速
+ARG NPM_REGISTRY=https://registry.npmjs.org
+RUN npm config set registry ${NPM_REGISTRY} \
+    && (npm ci --no-audit --no-fund || npm install --no-audit --no-fund)
 
 # ---------- 构建层 ----------
 FROM node:22-alpine AS builder

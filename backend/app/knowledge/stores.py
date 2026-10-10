@@ -184,20 +184,22 @@ class MilvusVectorStore(BaseVectorStore):
         return self._client
 
     async def ensure_collection(self, dimension: int) -> None:
-        if self.client.has_collection(self.collection):
-            return
-        self.client.create_collection(
-            collection_name=self.collection,
-            dimension=dimension,
-            primary_field_name="id",
-            id_type="string",
-            max_length=self.ID_MAX_LENGTH,
-            vector_field_name="vector",
-            metric_type="COSINE",
-            auto_id=False,
-            enable_dynamic_field=True,
-        )
-        logger.info("已创建 Milvus 集合 %s（dim=%d）", self.collection, dimension)
+        if not self.client.has_collection(self.collection):
+            self.client.create_collection(
+                collection_name=self.collection,
+                dimension=dimension,
+                primary_field_name="id",
+                id_type="string",
+                max_length=self.ID_MAX_LENGTH,
+                vector_field_name="vector",
+                metric_type="COSINE",
+                auto_id=False,
+                enable_dynamic_field=True,
+            )
+            logger.info("已创建 Milvus 集合 %s（dim=%d）", self.collection, dimension)
+
+        # 检索要求集合处于加载状态，加载操作幂等，重复调用不会有副作用。
+        self.client.load_collection(self.collection)
 
     async def upsert(self, records: list[VectorRecord]) -> int:
         if not records:
@@ -213,6 +215,10 @@ class MilvusVectorStore(BaseVectorStore):
             for record in records
         ]
         self.client.upsert(collection_name=self.collection, data=data)
+        # Milvus 的写入先进入增长段，而 get_collection_stats 的 row_count
+        # 在 flush 之前恒为 0。若不显式 flush，count() 会误报空集合，
+        # 导致 ensure_builtin_corpus() 每次请求都重复写入。
+        self.client.flush(collection_name=self.collection)
         return len(data)
 
     async def search(
@@ -225,6 +231,7 @@ class MilvusVectorStore(BaseVectorStore):
         if not self.client.has_collection(self.collection):
             return []
 
+        self.client.load_collection(self.collection)
         results = self.client.search(
             collection_name=self.collection,
             data=[vector],

@@ -45,6 +45,7 @@ kaoyan-agents/
 │   │   ├── tasks/              # Celery 定时任务
 │   │   └── api/                # FastAPI 路由
 │   ├── alembic/                # 数据库迁移
+│   ├── scripts/                # 基础设施自检与端到端冒烟脚本
 │   └── tests/
 └── frontend/                   # Next.js 工作台
     ├── src/app/                # 工作台 / 多智能体对话 / 学习计划 / 系统总览
@@ -129,6 +130,16 @@ docker compose --profile app up -d
 
 包含 frontend、backend、worker、beat 四个应用容器与全部基础设施。
 
+首次构建需拉取 Python 与 Node 依赖，直连官方源会因速度过慢而超时。可临时指定国内镜像：
+
+```bash
+PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple \
+NPM_REGISTRY=https://registry.npmmirror.com \
+docker compose --profile app build
+```
+
+（也可以写进 `.env`，compose 会自动读取；这两个变量只在构建期生效。）
+
 ### 7. 接入 LangFuse 可观测性（可选）
 
 未配置密钥时全部埋点都是空操作，不影响任何功能。
@@ -154,7 +165,18 @@ docker compose -f docker-compose.observability.yml up -d
 命中的科目与剩余天数、最终回复；每次模型调用生成一个 generation，
 记录模型名、耗时与 token 用量。trace 链接会随对话一起存入 `agent_messages.meta`。
 
-### 国内网络加速
+### 8. 部署自检
+
+容器就绪后，用两个脚本确认交付链路完整（均在 `backend/` 目录下执行）：
+
+```bash
+python -m scripts.verify_infrastructure   # 依赖连通性：PostgreSQL / Redis / 向量库写入+检索往返
+python -m scripts.smoke_api               # 端到端：建账号 → 定目标 → 生成计划 → 对话 → 打卡 → 提醒 → 检索
+```
+
+`verify_infrastructure` 只做只读探测，可随时重复执行；`smoke_api` 每次会新建一个 `smoke_*` 测试考生。
+
+### 9. 国内网络加速
 
 PyPI 直连较慢时，pip 会因拉取索引超时而报 `Could not find a version ... (from versions: none)`，改用国内镜像即可：
 
@@ -208,4 +230,4 @@ npm config set registry https://registry.npmmirror.com
 | 8 | FastAPI 业务接口层（含 SSE 流式） | 已完成 |
 | 9 | LangFuse 可观测性接入 | 已完成 |
 | 10 | Next.js 前端工作台 | 已完成 |
-| 11 | 测试、镜像与部署文档 | 待开始 |
+| 11 | 测试、镜像与部署文档 | 已完成 |

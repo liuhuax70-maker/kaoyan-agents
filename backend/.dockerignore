@@ -1,0 +1,18 @@
+# 本地虚拟环境与缓存不应进入构建上下文：
+# 既拖慢传输，也可能把 Windows 平台的二进制混入 Linux 镜像。
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# 本地数据与日志
+data/
+logs/
+*.log
+celerybeat-schedule*
+
+# 镜像内不需要测试代码
+tests/
