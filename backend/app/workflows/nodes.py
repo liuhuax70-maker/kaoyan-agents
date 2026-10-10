@@ -270,7 +270,7 @@ async def _run_breakdown(state: WorkflowState) -> dict[str, Any]:
 async def _run_tutor(state: WorkflowState) -> dict[str, Any]:
     snapshot = _snapshot(state)
     request = state.get("request", "")
-    chunks = await retrieve_context(request)
+    chunks = await retrieve_context(request, enabled=state.get("enable_retrieval", True))
 
     messages = build_messages(
         AgentTask.TUTORING,
@@ -326,7 +326,7 @@ async def _run_reviewer(state: WorkflowState) -> dict[str, Any]:
 async def _run_resource(state: WorkflowState) -> dict[str, Any]:
     snapshot = _snapshot(state)
     request = state.get("request", "") or "请给出各科目的资料组合"
-    chunks = await retrieve_context(request)
+    chunks = await retrieve_context(request, enabled=state.get("enable_retrieval", True))
 
     messages = build_messages(
         AgentTask.RESOURCE_PLAN,

@@ -18,7 +18,11 @@ DEFAULT_AGENTS = ("tutor",)
 
 
 def dispatch_agents(state: WorkflowState) -> list[Send]:
-    """按调度结果把本轮请求分发给多个智能体并行执行。"""
+    """按调度结果把本轮请求分发给多个智能体并行执行。
+
+    注意：Send 携带的是**显式构造的部分状态**，不会自动继承父状态的全部键。
+    任何下游节点要读取的输入都必须在这里列出来，否则节点只能拿到默认值。
+    """
 
     agents = state.get("agents") or list(DEFAULT_AGENTS)
     payload: dict[str, Any] = {
@@ -27,6 +31,7 @@ def dispatch_agents(state: WorkflowState) -> list[Send]:
         "plan": state.get("plan"),
         "intent": state.get("intent", "chat"),
         "provider": state.get("provider"),
+        "enable_retrieval": state.get("enable_retrieval", True),
     }
     return [Send("run_agent", {**payload, "agent_key": key}) for key in agents]
 

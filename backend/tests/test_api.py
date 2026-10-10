@@ -4,11 +4,24 @@
 """
 
 from datetime import date, timedelta
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
 
+from app.knowledge import Document, get_knowledge_base
+
 TODAY = date.today()
+
+
+def collect_references(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """从对话响应中取出各智能体携带的知识库引用。"""
+
+    return [
+        reference
+        for output in payload.get("outputs", [])
+        for reference in (output.get("payload") or {}).get("references") or []
+    ]
 
 
 async def _create_user(client: AsyncClient, username: str = "xiaoyan") -> int:
@@ -59,6 +72,34 @@ async def test_create_and_read_user(client: AsyncClient) -> None:
     assert body["nickname"] == "小研"
     assert body["profile"]["daily_hours"] == 5
     assert body["profile"]["preferred_slots"] == ["上午"]
+
+
+async def test_chat_retrieval_toggle_controls_references(client: AsyncClient) -> None:
+    """关闭检索时不应带出知识库引用，开启时应命中指定片段。
+
+    用与提问完全相同的文本入库，保证相似度必然高于阈值——
+    否则「关闭」断言会因为本来就没有命中而假通过。
+    """
+
+    message = "retrieval toggle probe alpha"
+    user_id = await _create_user(client, username="retrieval_refs")
+
+    await get_knowledge_base().ingest([Document(id="test::toggle", text=message)])
+
+    off = await client.post(
+        "/api/chat",
+        json={"user_id": user_id, "message": message, "enable_retrieval": False},
+    )
+    assert off.status_code == 200
+    assert collect_references(off.json()) == []
+
+    on = await client.post(
+        "/api/chat",
+        json={"user_id": user_id, "message": message, "enable_retrieval": True},
+    )
+    assert on.status_code == 200
+    references = collect_references(on.json())
+    assert any(item["id"].startswith("test::toggle") for item in references)
 
 
 async def test_lookup_user_by_username(client: AsyncClient) -> None:

@@ -38,6 +38,7 @@ def build_initial_state(
     learner: LearnerSnapshot,
     plan: PlanSnapshot | None = None,
     provider: str | None = None,
+    enable_retrieval: bool = True,
 ) -> dict[str, Any]:
     """构造工作流初始状态。"""
 
@@ -46,6 +47,7 @@ def build_initial_state(
         "learner": learner.model_dump(mode="json"),
         "plan": plan.model_dump(mode="json") if plan else None,
         "provider": provider,
+        "enable_retrieval": enable_retrieval,
         "outputs": [],
         "events": [],
         "errors": [],
@@ -69,6 +71,14 @@ def build_result(state: dict[str, Any]) -> WorkflowResult:
         errors=list(state.get("errors") or []),
         events=[WorkflowEvent.model_validate(item) for item in state.get("events") or []],
     )
+
+
+def _should_retrieve(enable_retrieval: bool | None) -> bool:
+    """本次请求是否启用知识库检索，未显式指定时取全局配置。"""
+
+    if enable_retrieval is not None:
+        return enable_retrieval
+    return get_settings().knowledge.enable_retrieval
 
 
 def _should_review(enable_review: bool | None) -> bool:
@@ -114,6 +124,7 @@ async def run_workflow(
     *,
     provider: str | None = None,
     enable_review: bool | None = None,
+    enable_retrieval: bool | None = None,
     user_id: int | None = None,
     session_id: str | None = None,
 ) -> WorkflowResult:
@@ -131,7 +142,9 @@ async def run_workflow(
         metadata=_trace_metadata(learner),
     ) as handle:
         final_state = await workflow.ainvoke(
-            build_initial_state(request, learner, plan, provider)
+            build_initial_state(
+                request, learner, plan, provider, _should_retrieve(enable_retrieval)
+            )
         )
         result = build_result(final_state)
         result.trace_id = handle.trace_id
@@ -161,6 +174,7 @@ async def stream_workflow(
     *,
     provider: str | None = None,
     enable_review: bool | None = None,
+    enable_retrieval: bool | None = None,
     user_id: int | None = None,
     session_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
@@ -172,7 +186,9 @@ async def stream_workflow(
 
     workflow = get_workflow()
     observability = get_observability()
-    initial = build_initial_state(request, learner, plan, provider)
+    initial = build_initial_state(
+        request, learner, plan, provider, _should_retrieve(enable_retrieval)
+    )
 
     seen_events = 0
     seen_outputs = 0

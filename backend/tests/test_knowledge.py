@@ -194,6 +194,15 @@ async def test_retrieve_context_works_with_local_backend() -> None:
     assert all(item.score >= 0 for item in chunks)
 
 
+async def test_retrieve_context_can_be_disabled_per_request() -> None:
+    """按请求显式关闭检索时应立即返回空结果，不受全局开关影响。"""
+
+    reset_knowledge_base()
+
+    assert await retrieve_context("数学极限怎么学", enabled=False) == []
+    assert await retrieve_context("数学极限怎么学", top_k=3, enabled=False) == []
+
+
 @pytest.mark.parametrize(
     "question",
     ["数学怎么提高计算准确率", "政治选择题怎么提分", "专业课如何对齐考纲"],

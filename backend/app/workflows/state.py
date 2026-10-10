@@ -24,6 +24,9 @@ class WorkflowState(TypedDict, total=False):
     provider: str | None
     """覆盖默认大模型提供方，缺省读取配置。"""
 
+    enable_retrieval: bool
+    """本次请求是否启用知识库检索增强。"""
+
     # ---- 调度决策 ----
     intent: str
     agents: list[str]

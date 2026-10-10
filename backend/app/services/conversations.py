@@ -43,6 +43,7 @@ class ChatContext:
     message: str
     provider: str | None
     enable_review: bool | None
+    enable_retrieval: bool | None
 
 
 def sse(payload: dict) -> str:
@@ -131,6 +132,7 @@ async def start_conversation(
         message=request.message,
         provider=request.provider,
         enable_review=request.enable_review,
+        enable_retrieval=request.enable_retrieval,
     )
 
 
@@ -205,6 +207,7 @@ async def handle_chat(session: AsyncSession, request: ChatRequest) -> ChatRespon
         context.plan,
         provider=context.provider,
         enable_review=context.enable_review,
+        enable_retrieval=context.enable_retrieval,
         user_id=context.user_id,
         session_id=str(context.conversation_id),
     )
@@ -231,6 +234,7 @@ async def stream_chat(request: ChatRequest) -> AsyncIterator[str]:
             context.plan,
             provider=context.provider,
             enable_review=context.enable_review,
+            enable_retrieval=context.enable_retrieval,
             user_id=context.user_id,
             session_id=str(context.conversation_id),
         ):

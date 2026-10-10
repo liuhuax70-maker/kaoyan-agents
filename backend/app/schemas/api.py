@@ -230,6 +230,9 @@ class ChatRequest(BaseModel):
     conversation_id: int | None = None
     provider: str | None = Field(default=None, description="覆盖默认大模型提供方")
     enable_review: bool | None = Field(default=None, description="是否触发计划评审协作")
+    enable_retrieval: bool | None = Field(
+        default=None, description="是否启用知识库检索增强，缺省读取全局配置"
+    )
 
 
 class PlanGenerateRequest(BaseModel):

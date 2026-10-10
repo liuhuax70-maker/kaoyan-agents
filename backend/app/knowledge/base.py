@@ -173,16 +173,19 @@ def reset_knowledge_base() -> None:
     _knowledge_base = None
 
 
-async def retrieve_context(query: str, top_k: int | None = None) -> list[RetrievedChunk]:
+async def retrieve_context(
+    query: str, top_k: int | None = None, *, enabled: bool = True
+) -> list[RetrievedChunk]:
     """面向工作流的检索入口。
 
     检索属于增强能力而非核心链路：任何异常都降级为空结果，
     不能因为向量库不可用导致整个问答失败。
+    ``enabled=False`` 用于响应用户在本次对话中主动关闭检索的意图。
     """
 
     settings = get_settings()
     section = settings.knowledge
-    if not section.enabled or not section.enable_retrieval:
+    if not enabled or not section.enabled or not section.enable_retrieval:
         return []
 
     try:
