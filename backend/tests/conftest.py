@@ -20,6 +20,8 @@ os.environ["DATABASE__URL"] = f"sqlite+aiosqlite:///{(TMP_DIR / 'test.db').as_po
 os.environ["VECTOR__BACKEND"] = "local"
 os.environ["LLM__DEFAULT_PROVIDER"] = "stub"
 os.environ["CELERY__TASK_ALWAYS_EAGER"] = "true"
+# 测试环境没有 Redis，缩短超时避免连接等待拖慢用例
+os.environ["REDIS__SOCKET_TIMEOUT"] = "0.5"
 
 import fakeredis.aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
