@@ -6,6 +6,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel
 
 from app.core.config import get_settings
+from app.observability import get_observability
 from app.schemas import (
     DiagnosisReport,
     LearnerSnapshot,
@@ -95,6 +96,17 @@ async def _attach_plan_review(
     result.plan_review = await review_plan(learner, result.plan_draft, provider)
 
 
+def _trace_metadata(learner: LearnerSnapshot) -> dict[str, Any]:
+    """构造追踪元信息。"""
+
+    return {
+        "subjects": learner.subject_names,
+        "weak_subjects": learner.weak_subjects,
+        "days_left": learner.days_left,
+        "daily_hours": learner.daily_hours,
+    }
+
+
 async def run_workflow(
     request: str,
     learner: LearnerSnapshot,
@@ -102,13 +114,43 @@ async def run_workflow(
     *,
     provider: str | None = None,
     enable_review: bool | None = None,
+    user_id: int | None = None,
+    session_id: str | None = None,
 ) -> WorkflowResult:
     """执行一次完整的多智能体协作。"""
 
     workflow = get_workflow()
-    final_state = await workflow.ainvoke(build_initial_state(request, learner, plan, provider))
-    result = build_result(final_state)
-    await _attach_plan_review(result, learner, provider, enable_review)
+    observability = get_observability()
+
+    with observability.trace(
+        "multi-agent.workflow",
+        user_id=str(user_id) if user_id is not None else None,
+        session_id=session_id,
+        input=request,
+        tags=["workflow", "langgraph"],
+        metadata=_trace_metadata(learner),
+    ) as handle:
+        final_state = await workflow.ainvoke(
+            build_initial_state(request, learner, plan, provider)
+        )
+        result = build_result(final_state)
+        result.trace_id = handle.trace_id
+        result.trace_url = handle.url
+
+        await _attach_plan_review(result, learner, provider, enable_review)
+
+        handle.update(
+            output=result.reply_text(),
+            metadata={
+                **_trace_metadata(learner),
+                "intent": result.intent,
+                "agents": result.agents,
+                "confidence": result.confidence,
+                "errors": result.errors,
+                "reviewed": result.plan_review is not None,
+            },
+        )
+
     return result
 
 
@@ -119,6 +161,8 @@ async def stream_workflow(
     *,
     provider: str | None = None,
     enable_review: bool | None = None,
+    user_id: int | None = None,
+    session_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """流式执行，按步骤推送进度与产出。
 
@@ -127,25 +171,48 @@ async def stream_workflow(
     """
 
     workflow = get_workflow()
+    observability = get_observability()
     initial = build_initial_state(request, learner, plan, provider)
 
     seen_events = 0
     seen_outputs = 0
     final_state: dict[str, Any] = initial
 
-    async for state in workflow.astream(initial, stream_mode="values"):
-        final_state = state
+    with observability.trace(
+        "multi-agent.workflow.stream",
+        user_id=str(user_id) if user_id is not None else None,
+        session_id=session_id,
+        input=request,
+        tags=["workflow", "langgraph", "stream"],
+        metadata=_trace_metadata(learner),
+    ) as handle:
+        async for state in workflow.astream(initial, stream_mode="values"):
+            final_state = state
 
-        outputs = state.get("outputs") or []
-        for item in outputs[seen_outputs:]:
-            yield {"type": "output", "output": item}
-        seen_outputs = len(outputs)
+            outputs = state.get("outputs") or []
+            for item in outputs[seen_outputs:]:
+                yield {"type": "output", "output": item}
+            seen_outputs = len(outputs)
 
-        events = state.get("events") or []
-        for event in events[seen_events:]:
-            yield {"type": "progress", **event}
-        seen_events = len(events)
+            events = state.get("events") or []
+            for event in events[seen_events:]:
+                yield {"type": "progress", **event}
+            seen_events = len(events)
 
-    result = build_result(final_state)
-    await _attach_plan_review(result, learner, provider, enable_review)
+        result = build_result(final_state)
+        result.trace_id = handle.trace_id
+        result.trace_url = handle.url
+
+        await _attach_plan_review(result, learner, provider, enable_review)
+
+        handle.update(
+            output=result.reply_text(),
+            metadata={
+                **_trace_metadata(learner),
+                "intent": result.intent,
+                "agents": result.agents,
+                "reviewed": result.plan_review is not None,
+            },
+        )
+
     yield {"type": "result", "result": result.model_dump(mode="json")}

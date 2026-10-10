@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from app.cache.redis import cache
 from app.core.config import get_settings
 from app.db.session import db
+from app.observability import get_observability
 
 router = APIRouter(tags=["system"])
 
@@ -41,6 +42,6 @@ async def health() -> dict[str, Any]:
                 "provider": settings.llm.default_provider,
                 "ready": settings.llm.is_ready(),
             },
-            "observability": {"langfuse": settings.observability.langfuse_active},
+            "observability": get_observability().status(),
         },
     }

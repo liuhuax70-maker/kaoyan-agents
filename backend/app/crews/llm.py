@@ -6,7 +6,8 @@ from crewai.llms.base_llm import BaseLLM
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from pydantic import Field
 
-from app.llm import build_chat_model
+from app.llm import build_chat_model, extract_usage
+from app.observability import get_observability
 
 MESSAGE_TYPES: dict[str, type[BaseMessage]] = {
     "system": SystemMessage,
@@ -82,7 +83,18 @@ class KaoyanCrewLLM(BaseLLM):
         model = build_chat_model(
             self.model, self.provider_name, stub_context=self.stub_context
         )
-        return as_text(model.invoke(to_langchain_messages(messages)).content)
+        observability = get_observability()
+
+        with observability.generation(
+            f"crew.{self.model}",
+            model=self.model,
+            input=as_text(messages),
+            metadata={"provider": self.provider_name or "default", "framework": "crewai"},
+        ) as generation:
+            response = model.invoke(to_langchain_messages(messages))
+            text = as_text(response.content)
+            generation.record(output=text, usage=extract_usage(response))
+            return text
 
     @property
     def stop_sequences(self) -> list[str]:

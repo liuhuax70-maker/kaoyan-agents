@@ -2,6 +2,7 @@
 
 import json
 import re
+from dataclasses import dataclass
 from typing import Any, TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -14,6 +15,21 @@ from app.core.logging import get_logger
 logger = get_logger(__name__)
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+@dataclass(slots=True)
+class CallStats:
+    """一次结构化调用的用量统计，用于可观测性上报。"""
+
+    attempts: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+    @property
+    def usage(self) -> tuple[int, int]:
+        """返回 (输入 token, 输出 token)。"""
+
+        return self.input_tokens, self.output_tokens
 
 FENCED_JSON = re.compile(r"```(?:json)?\s*(?P<body>.*?)```", re.DOTALL)
 
@@ -78,10 +94,12 @@ async def invoke_structured(
     schema: type[ModelT],
     *,
     retries: int = 1,
+    stats: CallStats | None = None,
 ) -> ModelT:
     """调用模型并解析为结构化对象。
 
     解析失败时会把错误信息回灌给模型要求重出，避免一次格式抖动导致整条链路失败。
+    传入 ``stats`` 时会累计尝试次数与 token 用量。
     """
 
     conversation = list(messages)
@@ -89,6 +107,13 @@ async def invoke_structured(
 
     for attempt in range(retries + 1):
         response = await model.ainvoke(conversation)
+
+        if stats is not None:
+            input_tokens, output_tokens = extract_usage(response)
+            stats.attempts += 1
+            stats.input_tokens += input_tokens
+            stats.output_tokens += output_tokens
+
         try:
             payload = extract_json_object(_message_text(response))
             return schema.model_validate(payload)

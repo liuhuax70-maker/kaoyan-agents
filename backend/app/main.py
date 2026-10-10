@@ -12,6 +12,7 @@ from app.cache.redis import cache
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.db.session import db
+from app.observability import reset_observability
 
 logger = get_logger(__name__)
 
@@ -31,6 +32,8 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        # 冲刷追踪数据，避免退出时丢失最后一批埋点
+        reset_observability()
         await cache.close()
         await db.dispose()
         logger.info("服务已关闭")

@@ -172,6 +172,7 @@ async def persist_result(
             "agents": result.agents,
             "confidence": result.confidence,
             "plan_id": plan_id,
+            "trace_id": result.trace_id,
             "events": [item.model_dump(mode="json") for item in result.events],
         },
     )
@@ -186,6 +187,8 @@ async def persist_result(
         plan_id=plan_id,
         plan_review=result.plan_review,
         errors=result.errors,
+        trace_id=result.trace_id,
+        trace_url=result.trace_url,
     )
 
 
@@ -202,6 +205,8 @@ async def handle_chat(session: AsyncSession, request: ChatRequest) -> ChatRespon
         context.plan,
         provider=context.provider,
         enable_review=context.enable_review,
+        user_id=context.user_id,
+        session_id=str(context.conversation_id),
     )
     return await persist_result(session, context, result)
 
@@ -226,6 +231,8 @@ async def stream_chat(request: ChatRequest) -> AsyncIterator[str]:
             context.plan,
             provider=context.provider,
             enable_review=context.enable_review,
+            user_id=context.user_id,
+            session_id=str(context.conversation_id),
         ):
             if chunk["type"] == "result":
                 result = WorkflowResult.model_validate(chunk["result"])
@@ -252,6 +259,8 @@ async def stream_chat(request: ChatRequest) -> AsyncIterator[str]:
             "reply": final.reply,
             "plan_id": final.plan_id,
             "errors": final.errors,
+            "trace_id": final.trace_id,
+            "trace_url": final.trace_url,
         }
     )
 

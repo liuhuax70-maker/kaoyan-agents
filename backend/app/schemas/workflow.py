@@ -50,6 +50,8 @@ class WorkflowResult(BaseModel):
 
     errors: list[str] = Field(default_factory=list)
     events: list[WorkflowEvent] = Field(default_factory=list)
+    trace_id: str | None = Field(default=None, description="LangFuse 追踪 ID")
+    trace_url: str | None = Field(default=None, description="LangFuse 追踪链接")
 
     @property
     def has_plan(self) -> bool:

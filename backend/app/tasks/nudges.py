@@ -10,6 +10,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.db.session import db
+from app.observability import get_observability
 from app.services.reminders import (
     ReminderResult,
     send_daily_reminders,
@@ -41,8 +42,17 @@ def _execute(name: str, handler: Handler) -> dict[str, Any]:
             f"定时任务 {name} 检测到运行中的事件循环，请通过 Celery worker 或同步上下文调用"
         )
 
-    result = asyncio.run(_run_with_session(handler))
-    payload = result.as_dict()
+    observability = get_observability()
+    with observability.trace(
+        f"reminder.{name}",
+        tags=["celery", "reminder"],
+        input=name,
+        metadata={"task": name},
+    ) as handle:
+        result = asyncio.run(_run_with_session(handler))
+        payload = result.as_dict()
+        handle.update(output=payload)
+
     logger.info("定时任务 %s 完成：%s", name, payload)
     return payload
 

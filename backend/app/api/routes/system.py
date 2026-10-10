@@ -9,6 +9,7 @@ from app.api.deps import SessionDep
 from app.core.config import get_settings
 from app.db.models import Reminder, ReminderStatus
 from app.knowledge import get_knowledge_base
+from app.observability import get_observability
 from app.prompts import ROLES, describe_prompts
 from app.schemas.api import (
     CapabilityInfo,
@@ -72,6 +73,7 @@ async def overview() -> OverviewRead:
         workflow=describe_workflow(),
         schedule=describe_schedule(),
         knowledge=await _knowledge_stats(),
+        observability=get_observability().status(),
         capability=CapabilityInfo(
             llm_provider=settings.llm.default_provider,
             llm_ready=settings.llm.is_ready(),

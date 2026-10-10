@@ -106,6 +106,31 @@ docker compose --profile app up -d
 
 包含 backend、worker、beat 三个应用容器与全部基础设施。
 
+### 6. 接入 LangFuse 可观测性（可选）
+
+未配置密钥时全部埋点都是空操作，不影响任何功能。
+
+**方式一：LangFuse Cloud（推荐，开发阶段零运维）**
+
+```env
+OBSERVABILITY__LANGFUSE_ENABLED=true
+OBSERVABILITY__LANGFUSE_PUBLIC_KEY=pk-lf-...
+OBSERVABILITY__LANGFUSE_SECRET_KEY=sk-lf-...
+OBSERVABILITY__LANGFUSE_HOST=https://cloud.langfuse.com
+```
+
+**方式二：自托管**
+
+```bash
+docker compose -f docker-compose.observability.yml up -d
+```
+
+需要 PostgreSQL + ClickHouse + Redis + MinIO 四个组件，建议至少 4GB 内存。
+
+接入后每一次多智能体协作都会生成一条 trace，其中包含：意图、参与智能体、
+命中的科目与剩余天数、最终回复；每次模型调用生成一个 generation，
+记录模型名、耗时与 token 用量。trace 链接会随对话一起存入 `agent_messages.meta`。
+
 ### 国内网络加速
 
 PyPI 直连较慢时，pip 会因拉取索引超时而报 `Could not find a version ... (from versions: none)`，改用国内镜像即可：
@@ -157,6 +182,6 @@ npm config set registry https://registry.npmmirror.com
 | 6 | Milvus 向量库与 RAG 检索 | 已完成 |
 | 7 | Celery 提醒督促定时任务 | 已完成 |
 | 8 | FastAPI 业务接口层（含 SSE 流式） | 已完成 |
-| 9 | LangFuse 可观测性接入 | 待开始 |
+| 9 | LangFuse 可观测性接入 | 已完成 |
 | 10 | Next.js 前端工作台 | 待开始 |
 | 11 | 测试、镜像与部署文档 | 待开始 |

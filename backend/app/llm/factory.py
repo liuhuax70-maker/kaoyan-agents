@@ -13,12 +13,25 @@ from pydantic import BaseModel
 from app.core.config import Settings, get_settings
 from app.core.errors import ConfigurationError
 from app.core.logging import get_logger
-from app.llm.structured import invoke_structured
+from app.llm.structured import CallStats, invoke_structured
 from app.llm.stub import StubChatModel
+from app.observability import get_observability
 
 logger = get_logger(__name__)
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+
+PROMPT_PREVIEW_LIMIT = 600
+
+
+def _prompt_preview(messages: list[BaseMessage]) -> str:
+    """取最后一条消息作为输入预览，避免把整份提示词推给追踪服务。"""
+
+    if not messages:
+        return ""
+    content = messages[-1].content
+    text = content if isinstance(content, str) else str(content)
+    return text[:PROMPT_PREVIEW_LIMIT]
 
 
 def build_chat_model(
@@ -74,17 +87,31 @@ async def invoke_agent_task(
 ) -> SchemaT:
     """调用模型并解析结构化结果，失败时自动回退离线桩。
 
-    这是工作流节点与定时任务共用的调用入口：远程模型任何异常都不应让整条链路失败，
-    而离线桩返回的是与真实模型同构的 JSON，因此上层无需区分两种情况。
+    这是工作流节点、CrewAI 适配器与定时任务共用的调用入口：
+    远程模型任何异常都不应让整条链路失败，而离线桩返回的是与真实模型同构的 JSON，
+    因此上层无需区分两种情况。这里同时也是模型调用埋点的唯一位置。
     """
 
     context = stub_context or {}
+    resolved = settings or get_settings()
+    config = resolved.llm.provider_config(provider)
+    observability = get_observability()
+    stats = CallStats()
 
-    try:
-        model = build_chat_model(task, provider, settings=settings, stub_context=context)
-        return await invoke_structured(model, messages, schema)
-    except Exception as exc:  # noqa: BLE001 - 远程模型任何异常都应触发兜底
-        logger.warning("任务 %s 模型调用失败，回退离线桩：%s", task, exc)
+    with observability.generation(
+        task,
+        model=str(config["model"]),
+        input=_prompt_preview(messages),
+        metadata={"provider": config["provider"], "stub": config["provider"] == "stub"},
+    ) as generation:
+        try:
+            model = build_chat_model(task, provider, settings=resolved, stub_context=context)
+            result = await invoke_structured(model, messages, schema, stats=stats)
+        except Exception as exc:  # noqa: BLE001 - 远程模型任何异常都应触发兜底
+            logger.warning("任务 %s 模型调用失败，回退离线桩：%s", task, exc)
+            generation.record(level="WARNING")
+            fallback = StubChatModel(task=task, stub_context=context)
+            result = await invoke_structured(fallback, messages, schema, stats=stats)
 
-    fallback = StubChatModel(task=task, stub_context=context)
-    return await invoke_structured(fallback, messages, schema)
+        generation.record(output=result.model_dump(mode="json"), usage=stats.usage)
+        return result
