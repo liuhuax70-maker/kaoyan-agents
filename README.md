@@ -36,9 +36,12 @@ kaoyan-agents/
 │   │   ├── core/               # 配置、日志、异常
 │   │   ├── db/                 # 数据库引擎、会话、模型
 │   │   ├── cache/              # Redis 客户端
-│   │   ├── agents/             # 智能体提示词与角色
+│   │   ├── schemas/            # 智能体输入快照与结构化输出
+│   │   ├── prompts/            # 智能体提示词与角色定义
+│   │   ├── llm/                # 模型工厂、结构化解析、离线兜底
 │   │   ├── workflows/          # LangGraph 工作流编排
-│   │   ├── knowledge/          # 向量库与 RAG
+│   │   ├── crews/              # CrewAI 多角色协作
+│   │   ├── knowledge/          # 向量库与 RAG 检索
 │   │   ├── tasks/              # Celery 定时任务
 │   │   └── api/                # FastAPI 路由
 │   ├── alembic/                # 数据库迁移
@@ -107,7 +110,7 @@ npm config set registry https://registry.npmmirror.com
 | 3 | 智能体提示词体系与结构化输出 | 已完成 |
 | 4 | LangGraph 任务工作流编排 | 已完成 |
 | 5 | CrewAI 多角色协作（计划评审） | 已完成 |
-| 6 | Milvus 向量库与 RAG 检索 | 待开始 |
+| 6 | Milvus 向量库与 RAG 检索 | 已完成 |
 | 7 | Celery 提醒督促定时任务 | 待开始 |
 | 8 | FastAPI 业务接口层 | 待开始 |
 | 9 | LangFuse 可观测性接入 | 待开始 |

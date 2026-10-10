@@ -65,6 +65,9 @@ TUTOR_USER_TEMPLATE = """【考生画像】
 【考生提出的问题】
 {request}
 
+【知识库参考资料】
+{retrieved_context}
+
 【输出结构】
 {output_contract}
 """
@@ -90,6 +93,9 @@ RESOURCE_USER_TEMPLATE = """【考生画像】
 
 【资料需求】
 {request}
+
+【知识库参考资料】
+{retrieved_context}
 
 【输出结构】
 {output_contract}
@@ -166,7 +172,7 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         task=AgentTask.TUTORING,
         role=TUTOR_ROLE_DEF,
         template=_make(TUTOR_ROLE_DEF, TUTOR_USER_TEMPLATE),
-        required_variables=("learner_context", "request"),
+        required_variables=("learner_context", "request", "retrieved_context"),
     ),
     AgentTask.DIAGNOSIS: PromptSpec(
         task=AgentTask.DIAGNOSIS,
@@ -178,7 +184,7 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         task=AgentTask.RESOURCE_PLAN,
         role=RESOURCE_ROLE,
         template=_make(RESOURCE_ROLE, RESOURCE_USER_TEMPLATE),
-        required_variables=("learner_context", "subject_context", "request"),
+        required_variables=("learner_context", "subject_context", "request", "retrieved_context"),
     ),
     AgentTask.NUDGE: PromptSpec(
         task=AgentTask.NUDGE,

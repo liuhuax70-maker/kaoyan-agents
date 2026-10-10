@@ -30,6 +30,13 @@ async def health() -> dict[str, Any]:
                 "backend": settings.vector.backend,
                 "collection": settings.vector.collection,
             },
+            "knowledge": {
+                "enabled": settings.knowledge.enabled,
+                "retrieval": settings.knowledge.enable_retrieval,
+                "embedding": settings.embedding.provider,
+                "embedding_ready": settings.embedding.is_ready,
+                "dimension": settings.embedding.dimension,
+            },
             "llm": {
                 "provider": settings.llm.default_provider,
                 "ready": settings.llm.is_ready(),

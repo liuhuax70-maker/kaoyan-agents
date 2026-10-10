@@ -12,6 +12,7 @@ from app.prompts.context import (
     render_plan,
     render_plan_draft,
     render_reminder,
+    render_retrieved,
     render_subjects,
 )
 from app.prompts.templates import (
@@ -37,5 +38,6 @@ __all__ = [
     "render_plan",
     "render_plan_draft",
     "render_reminder",
+    "render_retrieved",
     "render_subjects",
 ]

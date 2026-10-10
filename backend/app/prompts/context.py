@@ -1,10 +1,12 @@
 """把领域快照渲染成提示词中的中文上下文块。"""
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
+from app.knowledge.types import RetrievedChunk
 from app.schemas import LearnerSnapshot, PlanDraft, PlanSnapshot, ReminderSnapshot
 
 MAX_TASK_LINES = 20
@@ -147,6 +149,20 @@ def render_reminder(reminder: ReminderSnapshot) -> str:
     lines.append(f"今日待完成任务（{len(due)} 项）：{_bullets(due)}")
     lines.append(f"已逾期任务（{len(overdue)} 项）：{_bullets(overdue)}")
     return "\n".join(lines)
+
+
+def render_retrieved(chunks: Sequence[RetrievedChunk]) -> str:
+    """渲染检索到的知识片段，供提示词引用。"""
+
+    if not chunks:
+        return "- （本次未检索到参考资料，请基于通用备考规律作答，不要编造具体资料）"
+
+    blocks: list[str] = []
+    for index, chunk in enumerate(chunks, start=1):
+        subject = f"{chunk.subject}｜" if chunk.subject else ""
+        source = chunk.source or "知识库"
+        blocks.append(f"[{index}] {subject}{source}（相似度 {chunk.score:.2f}）\n{chunk.text}")
+    return "\n\n".join(blocks)
 
 
 def _strip_titles(node: Any) -> Any:

@@ -22,6 +22,7 @@ dependencies = [
   "langchain-openai>=0.2.0,<2.0.0",
   "langgraph>=0.2.0,<2.0.0",
   "crewai>=1.0.0,<2.0.0",
+  "pymilvus>=2.4.9,<3.0.0",
 ]
 
 [project.optional-dependencies]

@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.knowledge import retrieve_context
 from app.llm import AgentTask, StubChatModel, build_chat_model, invoke_structured
 from app.prompts import (
     ROLES,
@@ -19,6 +20,7 @@ from app.prompts import (
     render_learner,
     render_plan,
     render_reminder,
+    render_retrieved,
     render_subjects,
 )
 from app.prompts.catalog import WORKER_ROLE_KEYS
@@ -271,20 +273,35 @@ async def _run_breakdown(state: WorkflowState) -> dict[str, Any]:
 async def _run_tutor(state: WorkflowState) -> dict[str, Any]:
     snapshot = _snapshot(state)
     request = state.get("request", "")
+    chunks = await retrieve_context(request)
+
     messages = build_messages(
         AgentTask.TUTORING,
         learner_context=render_learner(snapshot),
         request=request,
+        retrieved_context=render_retrieved(chunks),
     )
     answer: TutoringAnswer = await _call(  # type: ignore[assignment]
         AgentTask.TUTORING, messages, TutoringAnswer, state
     )
     title, summary, highlights = render_tutoring(answer)
     payload = answer.model_dump(mode="json")
+
+    if chunks:
+        highlights = [*highlights, f"引用知识库片段 {len(chunks)} 条"]
+
     return {
         "tutoring": payload,
-        "outputs": [_output("tutor", title, summary, highlights, payload)],
-        "events": [_event("tutor", f"讲解学科：{answer.subject}", "tutor")],
+        "outputs": [
+            _output(
+                "tutor",
+                title,
+                summary,
+                highlights,
+                {**payload, "references": [item.to_payload() for item in chunks]},
+            )
+        ],
+        "events": [_event("tutor", f"讲解学科：{answer.subject}，检索 {len(chunks)} 条", "tutor")],
     }
 
 
@@ -311,21 +328,43 @@ async def _run_reviewer(state: WorkflowState) -> dict[str, Any]:
 
 async def _run_resource(state: WorkflowState) -> dict[str, Any]:
     snapshot = _snapshot(state)
+    request = state.get("request", "") or "请给出各科目的资料组合"
+    chunks = await retrieve_context(request)
+
     messages = build_messages(
         AgentTask.RESOURCE_PLAN,
         learner_context=render_learner(snapshot),
         subject_context=render_subjects(snapshot),
-        request=state.get("request", "") or "请给出各科目的资料组合",
+        request=request,
+        retrieved_context=render_retrieved(chunks),
     )
     plan: ResourcePlan = await _call(  # type: ignore[assignment]
         AgentTask.RESOURCE_PLAN, messages, ResourcePlan, state
     )
     title, summary, highlights = render_resource(plan)
     payload = plan.model_dump(mode="json")
+
+    if chunks:
+        highlights = [*highlights, f"引用知识库片段 {len(chunks)} 条"]
+
     return {
         "resource": payload,
-        "outputs": [_output("resource", title, summary, highlights, payload)],
-        "events": [_event("resource", f"给出 {len(plan.items)} 项资料建议", "resource")],
+        "outputs": [
+            _output(
+                "resource",
+                title,
+                summary,
+                highlights,
+                {**payload, "references": [item.to_payload() for item in chunks]},
+            )
+        ],
+        "events": [
+            _event(
+                "resource",
+                f"给出 {len(plan.items)} 项资料建议，检索 {len(chunks)} 条",
+                "resource",
+            )
+        ],
     }
 
 

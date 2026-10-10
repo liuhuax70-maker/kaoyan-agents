@@ -24,6 +24,8 @@ os.environ["CELERY__TASK_ALWAYS_EAGER"] = "true"
 os.environ["REDIS__SOCKET_TIMEOUT"] = "0.5"
 # 默认关闭计划评审协作，需要覆盖的用例显式开启
 os.environ["WORKFLOW__ENABLE_PLAN_REVIEW"] = "false"
+# 向量库落到临时目录，避免污染仓库
+os.environ["VECTOR__LOCAL_PATH"] = str(TMP_DIR / "vectorstore")
 
 import fakeredis.aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402

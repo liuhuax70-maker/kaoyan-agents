@@ -100,15 +100,88 @@ class CelerySection(BaseModel):
 
 
 class VectorSection(BaseModel):
-    """向量库配置。"""
+    """向量库配置。
+
+    生产环境使用 Milvus；milvus-lite 不支持 Windows，
+    因此本地开发用纯 Python 的 local 实现兜底。
+    """
 
     backend: VectorBackend = "local"
     milvus_uri: str = "http://localhost:19530"
     milvus_token: str = ""
     collection: str = "kaoyan_knowledge"
-    embedding_dim: int = 1024
-    top_k: int = 6
     local_path: str = "./data/vectorstore"
+
+
+class EmbeddingSection(BaseModel):
+    """向量化配置。
+
+    DeepSeek 不提供 embedding 接口，因此向量化单独配置：
+    stub 用于离线与测试，ollama（bge-m3）用于本地真实语义检索。
+    """
+
+    provider: Literal["stub", "ollama", "openai", "dashscope"] = "stub"
+    dimension: int = 1024
+    batch_size: int = 16
+    timeout_seconds: float = 60.0
+
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "bge-m3"
+
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "text-embedding-3-small"
+
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    dashscope_model: str = "text-embedding-v3"
+
+    def resolved(self) -> dict[str, Any]:
+        """返回当前提供方的连接参数。"""
+
+        if self.provider == "ollama":
+            return {
+                "provider": "ollama",
+                "model": self.ollama_model,
+                "base_url": self.ollama_base_url,
+                "api_key": "ollama",
+            }
+        if self.provider == "openai":
+            return {
+                "provider": "openai",
+                "model": self.openai_model,
+                "base_url": self.openai_base_url,
+                "api_key": self.openai_api_key,
+            }
+        if self.provider == "dashscope":
+            return {
+                "provider": "dashscope",
+                "model": self.dashscope_model,
+                "base_url": self.dashscope_base_url,
+                "api_key": self.dashscope_api_key,
+            }
+        return {"provider": "stub", "model": "stub-hash", "base_url": "", "api_key": ""}
+
+    @property
+    def is_ready(self) -> bool:
+        """当前提供方是否具备可用配置。"""
+
+        config = self.resolved()
+        if config["provider"] in {"stub", "ollama"}:
+            return True
+        return bool(config["api_key"])
+
+
+class KnowledgeSection(BaseModel):
+    """知识库与检索增强配置。"""
+
+    enabled: bool = True
+    enable_retrieval: bool = True
+    auto_ingest: bool = True
+    chunk_size: int = 320
+    chunk_overlap: int = 64
+    top_k: int = 6
+    min_score: float = 0.12
 
 
 class LLMSection(BaseModel):
@@ -214,6 +287,8 @@ class Settings(BaseSettings):
     redis: RedisSection = Field(default_factory=RedisSection)
     celery: CelerySection = Field(default_factory=CelerySection)
     vector: VectorSection = Field(default_factory=VectorSection)
+    embedding: EmbeddingSection = Field(default_factory=EmbeddingSection)
+    knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
     llm: LLMSection = Field(default_factory=LLMSection)
     workflow: WorkflowSection = Field(default_factory=WorkflowSection)
     observability: ObservabilitySection = Field(default_factory=ObservabilitySection)
