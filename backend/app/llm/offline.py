@@ -304,7 +304,7 @@ def build_diagnosis(context: dict[str, Any]) -> dict[str, Any]:
     completion = float(context.get("completion_rate") or 0)
     total = int(context.get("total_tasks") or 0)
     done = int(context.get("done_tasks") or 0)
-    overdue = int(context.get("overdue_tasks") or 0)
+    overdue = int(context.get("overdue_count") or 0)
     idle_days = int(context.get("idle_days") or 0)
     days_left = context.get("days_left")
     subjects = _subjects(context)
