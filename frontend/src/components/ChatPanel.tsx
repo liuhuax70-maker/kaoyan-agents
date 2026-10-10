@@ -169,7 +169,11 @@ export function ChatPanel() {
       setTurns(
         detail.messages.flatMap<Turn>((message) => {
           const payload = message.payload as { outputs?: AgentOutput[] }
-          const meta = message.meta as { intent?: string; agents?: string[]; plan_id?: number | null }
+          const meta = message.meta as {
+            intent?: string
+            agents?: string[]
+            plan_id?: number | null
+          }
           return [
             {
               role: message.role === 'user' ? 'user' : 'assistant',
@@ -196,11 +200,11 @@ export function ChatPanel() {
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_260px]">
+    <div className="grid gap-3.5 lg:grid-cols-[1fr_250px]">
       <Card
         padded={false}
         title="多智能体对话"
-        subtitle="调度协调者会先判断意图，再分发给规划 / 拆解 / 答疑 / 复盘 / 资料 / 督学智能体协作"
+        subtitle="调度协调者先判断意图，再分发给规划 / 拆解 / 答疑 / 复盘 / 资料 / 督学智能体协作"
         action={
           <div className="flex items-center gap-2">
             {conversationId && <Badge tone="indigo">会话 #{conversationId}</Badge>}
@@ -211,19 +215,19 @@ export function ChatPanel() {
         }
       >
         <div className="flex h-[62vh] min-h-[420px] flex-col">
-          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <div className="flex-1 space-y-4 overflow-y-auto px-4 py-4">
             {(workspaceError || localError) && (
               <ErrorBanner message={localError ?? workspaceError ?? ''} />
             )}
 
             {turns.length === 0 && !live && (
               <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-                <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-500/12 text-indigo-300">
-                  <IconSpark size={20} />
+                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-soft text-accent">
+                  <IconSpark size={19} />
                 </span>
                 <div>
-                  <p className="text-sm font-medium text-slate-200">描述你的备考问题</p>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="text-[13px] font-medium text-ink">描述你的备考问题</p>
+                  <p className="mt-1 text-xs text-ink-muted">
                     智能体将结合你的档案、计划与知识库给出可执行建议
                   </p>
                 </div>
@@ -233,7 +237,7 @@ export function ChatPanel() {
                       key={preset}
                       type="button"
                       onClick={() => void send(preset)}
-                      className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] text-slate-300 hover:border-indigo-400/40 hover:bg-indigo-500/8 hover:text-indigo-200"
+                      className="rounded-full border border-line-strong px-3 py-1.5 text-[11px] text-ink-soft transition-colors hover:border-accent hover:bg-accent-soft hover:text-accent"
                     >
                       {preset}
                     </button>
@@ -245,13 +249,13 @@ export function ChatPanel() {
             {turns.map((turn, index) =>
               turn.role === 'user' ? (
                 <div key={index} className="flex justify-end">
-                  <div className="max-w-[80%] rounded-2xl rounded-br-md bg-indigo-500/15 px-4 py-2.5 text-[13px] leading-relaxed text-indigo-100 ring-1 ring-inset ring-indigo-400/20">
+                  <div className="max-w-[80%] rounded-2xl rounded-br-md bg-accent px-3.5 py-2 text-[13px] leading-relaxed text-white">
                     {turn.content}
                   </div>
                 </div>
               ) : (
                 <div key={index} className="space-y-2.5">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {turn.intent && (
                       <Badge tone="indigo">{INTENT_LABEL[turn.intent] ?? turn.intent}</Badge>
                     )}
@@ -261,7 +265,7 @@ export function ChatPanel() {
                       </Badge>
                     ))}
                     {turn.createdAt && (
-                      <span className="ml-auto text-[11px] text-slate-600">
+                      <span className="ml-auto text-[11px] text-ink-muted">
                         {dateTime(turn.createdAt)}
                       </span>
                     )}
@@ -272,14 +276,14 @@ export function ChatPanel() {
                   ))}
 
                   {!turn.outputs.length && turn.content && (
-                    <div className="whitespace-pre-wrap rounded-2xl border border-white/8 bg-white/[0.02] px-4 py-3 text-[13px] leading-relaxed text-slate-300">
+                    <div className="surface whitespace-pre-wrap px-3.5 py-3 text-[13px] leading-relaxed text-ink-soft">
                       {turn.content}
                     </div>
                   )}
 
                   {turn.planId && (
-                    <div className="flex items-center gap-2 text-[11px] text-emerald-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    <div className="flex items-center gap-2 text-[11px] text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       学习计划已入库（计划 #{turn.planId}），已同步到「学习计划」页
                     </div>
                   )}
@@ -288,7 +292,7 @@ export function ChatPanel() {
                       href={turn.traceUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-[11px] text-slate-500 underline underline-offset-2 hover:text-slate-300"
+                      className="text-[11px] text-ink-muted underline underline-offset-2 hover:text-ink-soft"
                     >
                       在 LangFuse 查看本次协作链路
                     </a>
@@ -301,7 +305,7 @@ export function ChatPanel() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-white/6 px-4 py-3">
+          <div className="border-t border-line px-3.5 py-3">
             <div className="flex items-end gap-2">
               <textarea
                 value={input}
@@ -314,21 +318,25 @@ export function ChatPanel() {
                 }}
                 rows={2}
                 placeholder="例如：我的数学拖后腿，帮我调整接下来一个月的安排"
-                className="max-h-36 flex-1 resize-none rounded-xl border border-white/10 bg-slate-950/50 px-3.5 py-2.5 text-[13px] text-slate-100 outline-none placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15"
+                className="control max-h-36 flex-1 resize-none"
               />
               {sending ? (
-                <Button variant="danger" onClick={stop} className="h-10">
-                  <IconStop size={15} />
+                <Button variant="danger" onClick={stop} className="py-2">
+                  <IconStop size={14} />
                   停止
                 </Button>
               ) : (
-                <Button onClick={() => void send(input)} disabled={!input.trim()} className="h-10">
-                  <IconSend size={15} />
+                <Button
+                  onClick={() => void send(input)}
+                  disabled={!input.trim()}
+                  className="py-2"
+                >
+                  <IconSend size={14} />
                   发送
                 </Button>
               )}
             </div>
-            <p className="mt-2 text-[11px] text-slate-600">
+            <p className="mt-2 text-[11px] text-ink-muted">
               Enter 发送 · Shift + Enter 换行 · 支持 SSE 流式输出
             </p>
           </div>
@@ -337,25 +345,30 @@ export function ChatPanel() {
 
       <Card title="对话历史" subtitle={`最近 ${conversations.length} 条`} className="h-fit">
         {conversations.length === 0 ? (
-          <p className="text-xs text-slate-500">暂无历史会话</p>
+          <p className="text-xs text-ink-muted">暂无历史会话</p>
         ) : (
-          <ul className="space-y-1.5">
+          <ul className="space-y-1">
             {conversations.map((conversation) => (
               <li key={conversation.id}>
                 <button
                   type="button"
                   onClick={() => void openConversation(conversation.id)}
                   className={cx(
-                    'w-full rounded-xl px-3 py-2 text-left transition-colors',
+                    'w-full rounded-lg px-2.5 py-2 text-left transition-colors',
                     conversation.id === conversationId
-                      ? 'bg-indigo-500/12 ring-1 ring-inset ring-indigo-400/20'
-                      : 'hover:bg-white/5',
+                      ? 'bg-accent-soft'
+                      : 'hover:bg-slate-100',
                   )}
                 >
-                  <p className="truncate text-xs font-medium text-slate-200">
+                  <p
+                    className={cx(
+                      'truncate text-xs font-medium',
+                      conversation.id === conversationId ? 'text-accent' : 'text-ink',
+                    )}
+                  >
                     {conversation.title || `会话 #${conversation.id}`}
                   </p>
-                  <p className="mt-1 flex items-center gap-2 text-[11px] text-slate-500">
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[11px] text-ink-muted">
                     <span>{conversation.message_count} 条消息</span>
                     <span>·</span>
                     <span>{dateTime(conversation.created_at)}</span>
@@ -373,23 +386,23 @@ export function ChatPanel() {
 function LiveIndicator({ live }: { live: LiveState }) {
   return (
     <div className="space-y-3">
-      <div className="rounded-2xl border border-indigo-400/20 bg-indigo-500/6 px-4 py-3">
+      <div className="rounded-lg border border-blue-200 bg-accent-soft px-3.5 py-3">
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 animate-pulse-soft rounded-full bg-indigo-400" />
-          <span className="text-xs font-medium text-indigo-200">智能体协作中…</span>
-          <span className="ml-auto text-[11px] text-slate-500">
+          <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+          <span className="text-xs font-medium text-accent">智能体协作中…</span>
+          <span className="ml-auto text-[11px] text-ink-muted">
             {live.steps.length} 个步骤 · {live.outputs.length} 个产出
           </span>
         </div>
-        <ul className="mt-2.5 space-y-1">
+        <ul className="mt-2 space-y-1">
           {live.steps.map((step, index) => (
-            <li key={index} className="flex items-center gap-2 text-[11px] text-slate-400">
-              <span className="font-mono text-slate-600">{step.node}</span>
+            <li key={index} className="flex items-center gap-2 text-[11px] text-ink-soft">
+              <span className="font-mono text-ink-muted">{step.node}</span>
               <span className="truncate">{step.detail}</span>
             </li>
           ))}
           {live.steps.length === 0 && (
-            <li className="text-[11px] text-slate-500">正在准备上下文…</li>
+            <li className="text-[11px] text-ink-muted">正在准备上下文…</li>
           )}
         </ul>
       </div>

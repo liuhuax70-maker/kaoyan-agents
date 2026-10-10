@@ -142,10 +142,10 @@ export function ProfilePanel() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3.5">
       {error && <ErrorBanner message={error} />}
       {notice && (
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-xs text-emerald-200">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
           {notice}
         </div>
       )}
@@ -204,23 +204,26 @@ export function ProfilePanel() {
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-[11px] font-medium text-slate-400">考试科目</span>
+              <span className="text-xs font-medium text-ink-soft">考试科目</span>
               <button
                 type="button"
                 onClick={() =>
                   setTargetForm((current) => ({
                     ...current,
-                    subjects: [...current.subjects, { name: '', is_weak: false, score_weight: 0.1 }],
+                    subjects: [
+                      ...current.subjects,
+                      { name: '', is_weak: false, score_weight: 0.1 },
+                    ],
                   }))
                 }
-                className="text-[11px] text-indigo-300 hover:text-indigo-200"
+                className="text-[11px] font-medium text-accent hover:text-accent-hover"
               >
                 + 添加科目
               </button>
             </div>
             <div className="space-y-2">
               {targetForm.subjects.map((subject, index) => (
-                <div key={index} className="flex flex-wrap items-center gap-2">
+                <div key={index} className="surface-muted flex flex-wrap items-center gap-2 px-2.5 py-2">
                   <Input
                     value={subject.name}
                     onChange={(event) => updateSubject(index, { name: event.target.value })}
@@ -240,12 +243,12 @@ export function ProfilePanel() {
                     <option value="0.4">占比 40%</option>
                     <option value="0.5">占比 50%</option>
                   </Select>
-                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-slate-400">
+                  <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-ink-soft">
                     <input
                       type="checkbox"
                       checked={subject.is_weak}
                       onChange={(event) => updateSubject(index, { is_weak: event.target.checked })}
-                      className="h-3.5 w-3.5 accent-indigo-500"
+                      className="h-3.5 w-3.5 accent-blue-600"
                     />
                     薄弱科目
                   </label>
@@ -258,7 +261,7 @@ export function ProfilePanel() {
                           subjects: current.subjects.filter((_, position) => position !== index),
                         }))
                       }
-                      className="text-[11px] text-slate-500 hover:text-rose-300"
+                      className="text-[11px] text-ink-muted hover:text-rose-600"
                     >
                       删除
                     </button>

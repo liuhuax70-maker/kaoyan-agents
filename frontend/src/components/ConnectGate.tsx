@@ -31,23 +31,18 @@ export function ConnectGate() {
   }
 
   return (
-    <div className="mx-auto flex min-h-[70vh] w-full max-w-lg flex-col justify-center gap-6">
-      <div className="text-center">
-        <p className="text-[11px] font-medium uppercase tracking-[0.32em] text-indigo-400">
-          Kaoyan Agents
-        </p>
-        <h1 className="mt-3 text-2xl font-semibold text-slate-100">
-          考研考证学习规划与督促系统
-        </h1>
-        <p className="mt-2 text-sm leading-relaxed text-slate-400">
+    <div className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col justify-center gap-6">
+      <div>
+        <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-sm font-semibold text-white">
+          考
+        </span>
+        <h1 className="mt-4 text-xl font-semibold text-ink">考研考证学习规划与督促系统</h1>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-muted">
           多智能体协作生成学习计划、拆解任务、跟踪进度并定时督促
         </p>
       </div>
 
-      <form
-        onSubmit={submit}
-        className="rounded-2xl border border-white/8 bg-white/[0.025] p-6 backdrop-blur-sm"
-      >
+      <form onSubmit={submit} className="surface p-5">
         <Field label="考生标识" hint="同一用户名会进入同一份学习档案，换名字即新建账号">
           <Input
             value={username}
@@ -62,17 +57,17 @@ export function ConnectGate() {
         </Field>
 
         {error && (
-          <div className="mt-4">
+          <div className="mt-3.5">
             <ErrorBanner message={error} />
           </div>
         )}
 
-        <Button type="submit" loading={busy} className="mt-5 w-full">
+        <Button type="submit" loading={busy} className="mt-4 w-full py-2">
           进入工作台
         </Button>
 
-        <p className="mt-4 text-center text-[11px] text-slate-600">
-          后端地址 <span className="font-mono text-slate-500">{API_BASE}</span>
+        <p className="mt-3.5 text-center text-[11px] text-ink-muted">
+          后端地址 <span className="font-mono">{API_BASE}</span>
         </p>
       </form>
     </div>

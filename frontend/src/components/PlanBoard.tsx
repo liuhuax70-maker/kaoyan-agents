@@ -120,18 +120,26 @@ export function PlanBoard() {
           description="点击下方按钮，规划智能体会依据你的档案与目标划分阶段、拆解任务并排期。"
           action={
             <Button onClick={generate} loading={generating}>
-              <IconSpark size={15} />
+              <IconSpark size={14} />
               生成学习计划
             </Button>
           }
         />
-        {error && <div className="mt-4">{<ErrorBanner message={error} />}</div>}
+        {error && (
+          <div className="mt-3.5">
+            <ErrorBanner message={error} />
+          </div>
+        )}
       </Card>
     )
   }
 
+  const visibleStages = plan.stages.filter((stage) =>
+    stage.tasks.some((task) => filter === 'all' || task.status === filter),
+  )
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3.5">
       {error && <ErrorBanner message={error} onRetry={() => void load()} />}
 
       <Card
@@ -140,11 +148,11 @@ export function PlanBoard() {
         action={
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => void load()}>
-              <IconRefresh size={15} />
+              <IconRefresh size={14} />
               刷新
             </Button>
             <Button onClick={generate} loading={generating}>
-              <IconSpark size={15} />
+              <IconSpark size={14} />
               重新生成
             </Button>
           </div>
@@ -152,39 +160,42 @@ export function PlanBoard() {
       >
         <div className="space-y-3">
           {plan.strategy && (
-            <p className="text-[13px] leading-relaxed text-slate-400">{plan.strategy}</p>
+            <p className="text-[13px] leading-relaxed text-ink-soft">{plan.strategy}</p>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-4">
+          <div className="grid gap-2.5 sm:grid-cols-4">
             <Meta label="计划周期" value={`${plan.horizon_days} 天`} />
-            <Meta label="起止日期" value={`${shortDate(plan.start_date)} - ${shortDate(plan.end_date)}`} />
+            <Meta
+              label="起止日期"
+              value={`${shortDate(plan.start_date)} - ${shortDate(plan.end_date)}`}
+            />
             <Meta label="阶段 / 任务" value={`${plan.stages.length} / ${stats.total}`} />
             <Meta label="生成来源" value={plan.generated_by || '—'} />
           </div>
 
           <div>
-            <div className="flex items-center justify-between text-xs text-slate-400">
+            <div className="flex items-center justify-between text-xs text-ink-soft">
               <span>
                 已完成 {stats.done} / {stats.total}
               </span>
-              <span className="tabular-nums text-slate-300">{percent(stats.rate)}</span>
+              <span className="tabular-nums">{percent(stats.rate)}</span>
             </div>
             <ProgressBar value={stats.rate} tone="emerald" className="mt-2" />
           </div>
         </div>
       </Card>
 
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1">
         {FILTERS.map((item) => (
           <button
             key={item.key}
             type="button"
             onClick={() => setFilter(item.key)}
             className={cx(
-              'rounded-full px-3 py-1.5 text-[11px] font-medium transition-colors',
+              'rounded-lg px-2.5 py-1.5 text-[12px] font-medium transition-colors',
               filter === item.key
-                ? 'bg-indigo-500/15 text-indigo-200 ring-1 ring-inset ring-indigo-400/25'
-                : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
+                ? 'bg-accent-soft text-accent'
+                : 'text-ink-soft hover:bg-slate-100 hover:text-ink',
             )}
           >
             {item.label}
@@ -192,11 +203,8 @@ export function PlanBoard() {
         ))}
       </div>
 
-      {plan.stages.map((stage) => {
+      {visibleStages.map((stage) => {
         const tasks = stage.tasks.filter((task) => filter === 'all' || task.status === filter)
-        if (tasks.length === 0) {
-          return null
-        }
         return (
           <Card
             key={stage.id}
@@ -205,7 +213,7 @@ export function PlanBoard() {
             action={
               <div className="flex items-center gap-3">
                 <Badge tone="indigo">第 {stage.order_index + 1} 阶段</Badge>
-                <span className="text-[11px] text-slate-500">
+                <span className="hidden text-[11px] text-ink-muted sm:inline">
                   {shortDate(stage.start_date)} - {shortDate(stage.end_date)} · {stage.target_hours}h
                 </span>
               </div>
@@ -213,7 +221,7 @@ export function PlanBoard() {
           >
             <div className="mb-3 flex items-center gap-3">
               <ProgressBar value={stage.completion_rate} className="flex-1" />
-              <span className="text-[11px] tabular-nums text-slate-400">
+              <span className="text-[11px] tabular-nums text-ink-muted">
                 {percent(stage.completion_rate)}
               </span>
             </div>
@@ -222,13 +230,13 @@ export function PlanBoard() {
               {tasks.map((task) => (
                 <li
                   key={task.id}
-                  className="flex flex-wrap items-start gap-3 rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-3"
+                  className="surface-muted flex flex-wrap items-start gap-3 px-3.5 py-3"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span
                         className={cx(
-                          'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+                          'rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset',
                           statusTone(task.status),
                         )}
                       >
@@ -236,26 +244,26 @@ export function PlanBoard() {
                       </span>
                       <span
                         className={cx(
-                          'rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+                          'rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset',
                           priorityTone(task.priority),
                         )}
                       >
                         {PRIORITY_LABEL[task.priority]}优先
                       </span>
                       <Badge tone="neutral">{TASK_TYPE_LABEL[task.task_type]}</Badge>
-                      <span className="text-[11px] text-slate-500">
+                      <span className="text-[11px] text-ink-muted">
                         {shortDate(task.planned_date)} · {task.duration_minutes} 分钟
                       </span>
                     </div>
 
-                    <p className="mt-2 text-[13px] font-medium text-slate-200">{task.title}</p>
+                    <p className="mt-1.5 text-[13px] font-medium text-ink">{task.title}</p>
                     {task.description && (
-                      <p className="mt-1 text-[11px] leading-relaxed text-slate-500">
+                      <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">
                         {task.description}
                       </p>
                     )}
                     {task.resource_hint && (
-                      <p className="mt-1 text-[11px] text-slate-600">
+                      <p className="mt-1 text-[11px] text-ink-muted">
                         资料建议：{task.resource_hint}
                       </p>
                     )}
@@ -276,13 +284,13 @@ export function PlanBoard() {
                         loading={busyTaskId === task.id}
                         onClick={() => void checkIn(task, 'done')}
                       >
-                        <IconCheck size={15} />
+                        <IconCheck size={14} />
                         完成
                       </Button>
                     )}
                     {task.status === 'done' && (
-                      <span className="flex items-center gap-1.5 text-[11px] text-emerald-300">
-                        <IconCheck size={14} />
+                      <span className="flex items-center gap-1.5 text-[11px] text-emerald-700">
+                        <IconCheck size={13} />
                         已打卡
                       </span>
                     )}
@@ -294,14 +302,14 @@ export function PlanBoard() {
         )
       })}
 
-      {plan.stages.every((stage) => stage.tasks.filter((task) => filter === 'all' || task.status === filter).length === 0) && (
+      {visibleStages.length === 0 && (
         <Card>
           <EmptyState
             title="当前筛选下没有任务"
             description="切换筛选条件查看其它状态的任务。"
             action={
               <Button variant="outline" onClick={() => setFilter('all')}>
-                <IconPlan size={15} />
+                <IconPlan size={14} />
                 查看全部任务
               </Button>
             }
@@ -314,9 +322,9 @@ export function PlanBoard() {
 
 function Meta({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-2.5">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-[13px] font-medium text-slate-200">{value}</p>
+    <div className="surface-muted px-3.5 py-2.5">
+      <p className="text-[11px] text-ink-muted">{label}</p>
+      <p className="mt-0.5 truncate text-[13px] font-medium text-ink">{value}</p>
     </div>
   )
 }

@@ -1,7 +1,26 @@
 @import 'tailwindcss';
 
+/*
+ * 浅色主题令牌。用 @theme 声明后可以直接用语义化类名：
+ * bg-page / bg-surface / border-line / text-ink / text-ink-muted / bg-accent ...
+ * 组件里不写死色值，后续换配色只改这一处。
+ */
+@theme {
+  --color-page: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-muted: #fafbfc;
+  --color-line: #e5e7eb;
+  --color-line-strong: #d6d9e0;
+  --color-ink: #14161a;
+  --color-ink-soft: #4a5261;
+  --color-ink-muted: #7b8494;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-soft: #eef3fe;
+}
+
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 html,
@@ -10,14 +29,59 @@ body {
 }
 
 body {
-  background:
-    radial-gradient(1100px 620px at 12% -8%, rgba(79, 70, 229, 0.16), transparent 62%),
-    radial-gradient(900px 540px at 100% 0%, rgba(16, 185, 129, 0.12), transparent 58%),
-    #060911;
-  color: #e2e8f0;
-  font-family: ui-sans-serif, system-ui, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  background-color: var(--color-page);
+  color: var(--color-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
+    sans-serif;
   -webkit-font-smoothing: antialiased;
 }
+
+/* ---------- 复用的容器与控件 ---------- */
+
+.surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+}
+
+.surface-muted {
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+}
+
+.control {
+  width: 100%;
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line-strong);
+  border-radius: 8px;
+  padding: 7px 11px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-ink);
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.control::placeholder {
+  color: #a8afbb;
+}
+
+.control:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+}
+
+.control:disabled {
+  background: #f3f4f6;
+  color: var(--color-ink-muted);
+}
+
+/* ---------- 滚动条 ---------- */
 
 ::-webkit-scrollbar {
   width: 10px;
@@ -29,22 +93,23 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.35);
+  background: rgb(100 116 139 / 0.26);
   border-radius: 9999px;
-  border: 2px solid transparent;
+  border: 3px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgb(71 85 105 / 0.42);
   background-clip: content-box;
 }
 
-/* 流式输出时的光标与卡片出现动画 */
+/* ---------- 动效：仅用于流式输出时提示内容在增长 ---------- */
+
 @keyframes kaoyan-fade-up {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(3px);
   }
   to {
     opacity: 1;
@@ -53,7 +118,7 @@ body {
 }
 
 .animate-fade-up {
-  animation: kaoyan-fade-up 0.24s ease-out both;
+  animation: kaoyan-fade-up 0.18s ease-out both;
 }
 
 @keyframes kaoyan-pulse {
@@ -62,12 +127,12 @@ body {
     opacity: 1;
   }
   50% {
-    opacity: 0.45;
+    opacity: 0.35;
   }
 }
 
 .animate-pulse-soft {
-  animation: kaoyan-pulse 1.6s ease-in-out infinite;
+  animation: kaoyan-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes kaoyan-caret {
@@ -85,5 +150,5 @@ body {
   content: '▍';
   margin-left: 2px;
   animation: kaoyan-caret 1s steps(1) infinite;
-  color: #818cf8;
+  color: var(--color-accent);
 }

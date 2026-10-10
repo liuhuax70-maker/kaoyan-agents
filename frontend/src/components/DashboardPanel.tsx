@@ -40,10 +40,10 @@ export function DashboardPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-3.5">
       {error && <ErrorBanner message={error} />}
       {notice && (
-        <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-xs text-emerald-200">
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
           {notice}
         </div>
       )}
@@ -56,7 +56,7 @@ export function DashboardPanel() {
             action={
               <Link
                 href="/plan"
-                className="rounded-xl bg-indigo-500 px-3.5 py-2 text-[13px] font-medium text-white hover:bg-indigo-400"
+                className="rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-white hover:bg-accent-hover"
               >
                 去设置备考目标
               </Link>
@@ -77,7 +77,7 @@ export function DashboardPanel() {
           label="逾期任务"
           value={stats.overdue}
           tone={stats.overdue > 0 ? 'rose' : 'emerald'}
-          hint={stats.overdue > 0 ? '建议优先后处理' : '节奏正常'}
+          hint={stats.overdue > 0 ? '建议优先处理' : '节奏正常'}
         />
         <Stat
           label="距考试"
@@ -87,37 +87,35 @@ export function DashboardPanel() {
         />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+      <div className="grid gap-3.5 lg:grid-cols-[1.35fr_1fr]">
         <Card
           title="当前学习计划"
           subtitle={dashboard.plan_title || '尚未生成计划'}
           action={
             <Button onClick={generate} loading={generating}>
-              <IconSpark size={15} />
+              <IconSpark size={14} />
               生成计划
             </Button>
           }
         >
           {dashboard.plan_id ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs text-slate-400">
+              <div className="flex items-center justify-between text-xs text-ink-soft">
                 <span>计划完成度</span>
-                <span className="tabular-nums text-slate-300">
-                  {percent(dashboard.plan_progress)}
-                </span>
+                <span className="tabular-nums">{percent(dashboard.plan_progress)}</span>
               </div>
               <ProgressBar value={dashboard.plan_progress} tone="emerald" />
               <div className="flex flex-wrap gap-2 pt-1">
                 <Link
                   href="/plan"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/12 px-3 py-1.5 text-xs text-slate-200 hover:border-white/25 hover:bg-white/5"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-xs text-ink-soft hover:border-slate-400 hover:bg-slate-50"
                 >
                   <IconPlan size={14} />
                   查看任务看板
                 </Link>
                 <Link
                   href="/chat"
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-white/12 px-3 py-1.5 text-xs text-slate-200 hover:border-white/25 hover:bg-white/5"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-xs text-ink-soft hover:border-slate-400 hover:bg-slate-50"
                 >
                   <IconChart size={14} />
                   找智能体复盘
@@ -125,7 +123,7 @@ export function DashboardPanel() {
               </div>
             </div>
           ) : (
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-ink-muted">
               点击右上角「生成计划」，规划智能体会依据你的基础、目标与剩余天数划分阶段并拆解任务。
             </p>
           )}
@@ -133,24 +131,26 @@ export function DashboardPanel() {
 
         <Card title="最近提醒" subtitle={`待发送 ${dashboard.pending_reminders} 条`}>
           {dashboard.recent_reminders.length === 0 ? (
-            <p className="text-xs leading-relaxed text-slate-500">
+            <p className="text-xs leading-relaxed text-ink-muted">
               暂无提醒。可在「学习计划」页手动触发一轮提醒查看效果。
             </p>
           ) : (
-            <ul className="space-y-3">
+            <ul className="space-y-2.5">
               {dashboard.recent_reminders.map((reminder) => (
-                <li key={reminder.id} className="rounded-xl border border-white/8 bg-white/[0.02] p-3">
-                  <div className="flex items-center gap-2">
-                    <Badge tone="indigo">{REMINDER_TYPE_LABEL[reminder.reminder_type] ?? reminder.reminder_type}</Badge>
+                <li key={reminder.id} className="surface-muted p-3">
+                  <div className="flex items-center gap-1.5">
+                    <Badge tone="indigo">
+                      {REMINDER_TYPE_LABEL[reminder.reminder_type] ?? reminder.reminder_type}
+                    </Badge>
                     <Badge tone={reminder.status === 'sent' ? 'emerald' : 'amber'}>
                       {reminder.status === 'sent' ? '已发送' : '待发送'}
                     </Badge>
-                    <span className="ml-auto text-[11px] text-slate-600">
+                    <span className="ml-auto text-[11px] text-ink-muted">
                       {shortDate(reminder.created_at)}
                     </span>
                   </div>
-                  <p className="mt-2 text-xs font-medium text-slate-200">{reminder.title}</p>
-                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-slate-500">
+                  <p className="mt-2 text-xs font-medium text-ink">{reminder.title}</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-ink-muted">
                     {reminder.content}
                   </p>
                 </li>
@@ -174,9 +174,9 @@ export function DashboardPanel() {
 
 function Summary({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-2.5">
-      <p className="text-[11px] text-slate-500">{label}</p>
-      <p className="mt-1 truncate text-[13px] font-medium text-slate-200">{value}</p>
+    <div className="surface-muted px-3.5 py-2.5">
+      <p className="text-[11px] text-ink-muted">{label}</p>
+      <p className="mt-0.5 truncate text-[13px] font-medium text-ink">{value}</p>
     </div>
   )
 }

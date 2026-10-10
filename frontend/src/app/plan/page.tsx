@@ -19,18 +19,18 @@ export default function PlanPage() {
   const [tab, setTab] = useState<TabKey>('plan')
 
   return (
-    <div className="flex flex-col gap-4">
-      <nav className="flex gap-1.5">
+    <div className="flex flex-col gap-3.5">
+      <nav className="surface inline-flex w-fit gap-1 p-1">
         {TABS.map((item) => (
           <button
             key={item.key}
             type="button"
             onClick={() => setTab(item.key)}
             className={cx(
-              'rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors',
+              'rounded-md px-3 py-1.5 text-[13px] font-medium transition-colors',
               tab === item.key
-                ? 'bg-indigo-500/12 text-indigo-200 ring-1 ring-inset ring-indigo-400/20'
-                : 'text-slate-400 hover:bg-white/5 hover:text-slate-200',
+                ? 'bg-accent-soft text-accent'
+                : 'text-ink-soft hover:bg-slate-100 hover:text-ink',
             )}
           >
             {item.label}

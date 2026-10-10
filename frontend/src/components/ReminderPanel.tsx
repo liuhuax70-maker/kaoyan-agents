@@ -74,15 +74,15 @@ export function ReminderPanel() {
       subtitle="生产环境由 Celery Beat 定时触发，这里可手动执行查看效果"
       action={
         <Button variant="outline" onClick={() => void load()}>
-          <IconRefresh size={15} />
+          <IconRefresh size={14} />
           刷新
         </Button>
       }
     >
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3.5">
         {error && <ErrorBanner message={error} onRetry={() => void load()} />}
         {notice && (
-          <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-3 text-xs text-emerald-200">
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
             {notice}
           </div>
         )}
@@ -94,16 +94,16 @@ export function ReminderPanel() {
               type="button"
               disabled={running !== null}
               onClick={() => void trigger(kind.key)}
-              className="rounded-xl border border-white/10 bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-indigo-400/35 hover:bg-indigo-500/6 disabled:cursor-not-allowed disabled:opacity-60"
+              className="surface-muted px-3.5 py-3 text-left transition-colors hover:border-blue-300 hover:bg-accent-soft disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <span className="flex items-center gap-1.5 text-[12px] font-medium text-slate-200">
-                <IconBell size={14} />
+              <span className="flex items-center gap-1.5 text-xs font-medium text-ink">
+                <IconBell size={14} className="text-ink-muted" />
                 {kind.label}
                 {running === kind.key && (
-                  <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-indigo-400 border-t-transparent" />
+                  <span className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-accent border-t-transparent" />
                 )}
               </span>
-              <span className="mt-1 block text-[11px] leading-relaxed text-slate-500">
+              <span className="mt-1 block text-[11px] leading-relaxed text-ink-muted">
                 {kind.hint}
               </span>
             </button>
@@ -120,8 +120,8 @@ export function ReminderPanel() {
         ) : (
           <ul className="space-y-2.5">
             {reminders.map((reminder) => (
-              <li key={reminder.id} className="rounded-xl border border-white/8 bg-white/[0.02] p-3.5">
-                <div className="flex flex-wrap items-center gap-2">
+              <li key={reminder.id} className="surface-muted p-3.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <Badge tone="indigo">
                     {REMINDER_TYPE_LABEL[reminder.reminder_type] ?? reminder.reminder_type}
                   </Badge>
@@ -141,12 +141,12 @@ export function ReminderPanel() {
                         : '待发送'}
                   </Badge>
                   <Badge tone="neutral">{reminder.channel}</Badge>
-                  <span className="ml-auto text-[11px] text-slate-600">
+                  <span className="ml-auto text-[11px] text-ink-muted">
                     {dateTime(reminder.created_at)}
                   </span>
                 </div>
-                <p className="mt-2 text-[13px] font-medium text-slate-200">{reminder.title}</p>
-                <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-500">
+                <p className="mt-2 text-[13px] font-medium text-ink">{reminder.title}</p>
+                <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-ink-muted">
                   {reminder.content}
                 </p>
               </li>

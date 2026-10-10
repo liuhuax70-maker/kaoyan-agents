@@ -1,4 +1,10 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type {
+  ButtonHTMLAttributes,
+  InputHTMLAttributes,
+  ReactNode,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from 'react'
 
 export function cx(...values: Array<string | false | null | undefined>): string {
   return values.filter(Boolean).join(' ')
@@ -20,33 +26,30 @@ export function Card({
   padded?: boolean
 }) {
   return (
-    <section
-      className={cx(
-        'rounded-2xl border border-white/8 bg-white/[0.025] shadow-[0_18px_50px_-30px_rgba(15,23,42,0.9)] backdrop-blur-sm',
-        className,
-      )}
-    >
+    <section className={cx('surface', className)}>
       {(title || action) && (
-        <header className="flex items-start justify-between gap-4 border-b border-white/6 px-5 py-4">
-          <div>
-            {title && <h2 className="text-[15px] font-semibold text-slate-100">{title}</h2>}
-            {subtitle && <p className="mt-1 text-xs text-slate-400">{subtitle}</p>}
+        <header className="flex items-start justify-between gap-4 border-b border-line px-4 py-3">
+          <div className="min-w-0">
+            {title && (
+              <h2 className="truncate text-[13.5px] font-semibold text-ink">{title}</h2>
+            )}
+            {subtitle && <p className="mt-0.5 text-xs text-ink-muted">{subtitle}</p>}
           </div>
           {action}
         </header>
       )}
-      <div className={padded ? 'px-5 py-4' : undefined}>{children}</div>
+      <div className={padded ? 'px-4 py-3.5' : undefined}>{children}</div>
     </section>
   )
 }
 
 const BADGE_TONES = {
-  neutral: 'bg-slate-500/12 text-slate-300 ring-slate-400/20',
-  indigo: 'bg-indigo-500/12 text-indigo-300 ring-indigo-400/25',
-  emerald: 'bg-emerald-500/12 text-emerald-300 ring-emerald-400/25',
-  amber: 'bg-amber-500/12 text-amber-300 ring-amber-400/25',
-  rose: 'bg-rose-500/12 text-rose-300 ring-rose-400/25',
-  sky: 'bg-sky-500/12 text-sky-300 ring-sky-400/25',
+  neutral: 'bg-slate-100 text-slate-600 ring-slate-200',
+  indigo: 'bg-blue-50 text-blue-700 ring-blue-200',
+  emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+  amber: 'bg-amber-50 text-amber-700 ring-amber-200',
+  rose: 'bg-rose-50 text-rose-700 ring-rose-200',
+  sky: 'bg-sky-50 text-sky-700 ring-sky-200',
 } as const
 
 export type BadgeTone = keyof typeof BADGE_TONES
@@ -63,7 +66,7 @@ export function Badge({
   return (
     <span
       className={cx(
-        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset',
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset',
         BADGE_TONES[tone],
         className,
       )}
@@ -76,11 +79,10 @@ export function Badge({
 type ButtonVariant = 'primary' | 'ghost' | 'outline' | 'danger'
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    'bg-indigo-500 text-white hover:bg-indigo-400 disabled:bg-indigo-500/40 disabled:text-white/60',
-  ghost: 'text-slate-300 hover:bg-white/6 hover:text-white',
-  outline: 'border border-white/12 text-slate-200 hover:border-white/25 hover:bg-white/5',
-  danger: 'border border-rose-500/30 text-rose-300 hover:bg-rose-500/10',
+  primary: 'bg-accent text-white hover:bg-accent-hover',
+  ghost: 'text-ink-soft hover:bg-slate-100 hover:text-ink',
+  outline: 'border border-line-strong bg-surface text-ink-soft hover:border-slate-400 hover:bg-slate-50',
+  danger: 'border border-rose-200 bg-surface text-rose-600 hover:bg-rose-50',
 }
 
 export function Button({
@@ -96,13 +98,13 @@ export function Button({
       {...props}
       disabled={disabled || loading}
       className={cx(
-        'inline-flex items-center justify-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-70',
+        'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-55',
         BUTTON_VARIANTS[variant],
         className,
       )}
     >
       {loading && (
-        <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.6px] border-current border-t-transparent" />
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />
       )}
       {children}
     </button>
@@ -120,14 +122,14 @@ export function ProgressBar({
 }) {
   const clamped = Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0))
   const colors = {
-    indigo: 'from-indigo-500 to-violet-400',
-    emerald: 'from-emerald-500 to-teal-400',
-    amber: 'from-amber-500 to-orange-400',
+    indigo: 'bg-blue-600',
+    emerald: 'bg-emerald-600',
+    amber: 'bg-amber-500',
   }
   return (
-    <div className={cx('h-1.5 w-full overflow-hidden rounded-full bg-white/8', className)}>
+    <div className={cx('h-1.5 w-full overflow-hidden rounded-full bg-slate-200', className)}>
       <div
-        className={cx('h-full rounded-full bg-gradient-to-r transition-all', colors[tone])}
+        className={cx('h-full rounded-full transition-all', colors[tone])}
         style={{ width: `${clamped * 100}%` }}
       />
     </div>
@@ -146,16 +148,16 @@ export function Stat({
   tone?: 'indigo' | 'emerald' | 'amber' | 'rose'
 }) {
   const tones = {
-    indigo: 'text-indigo-300',
-    emerald: 'text-emerald-300',
-    amber: 'text-amber-300',
-    rose: 'text-rose-300',
+    indigo: 'text-ink',
+    emerald: 'text-emerald-700',
+    amber: 'text-amber-700',
+    rose: 'text-rose-600',
   }
   return (
-    <div className="rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
-      <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
-      <p className={cx('mt-1.5 text-xl font-semibold tabular-nums', tones[tone])}>{value}</p>
-      {hint && <p className="mt-1 text-[11px] text-slate-500">{hint}</p>}
+    <div className="surface-muted px-3.5 py-3">
+      <p className="text-xs text-ink-muted">{label}</p>
+      <p className={cx('mt-1 text-xl font-semibold tabular-nums', tones[tone])}>{value}</p>
+      {hint && <p className="mt-1 text-[11px] text-ink-muted">{hint}</p>}
     </div>
   )
 }
@@ -170,9 +172,11 @@ export function EmptyState({
   action?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-white/10 px-6 py-10 text-center">
-      <p className="text-sm font-medium text-slate-300">{title}</p>
-      {description && <p className="max-w-md text-xs leading-relaxed text-slate-500">{description}</p>}
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-line-strong bg-surface-muted px-6 py-9 text-center">
+      <p className="text-[13px] font-medium text-ink">{title}</p>
+      {description && (
+        <p className="max-w-md text-xs leading-relaxed text-ink-muted">{description}</p>
+      )}
       {action}
     </div>
   )
@@ -180,14 +184,13 @@ export function EmptyState({
 
 export function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-rose-500/25 bg-rose-500/8 px-4 py-3">
-      <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
-      <p className="flex-1 text-xs leading-relaxed text-rose-200">{message}</p>
+    <div className="flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5">
+      <p className="flex-1 text-xs leading-relaxed text-rose-700">{message}</p>
       {onRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="text-[11px] font-medium text-rose-300 underline underline-offset-2 hover:text-rose-200"
+          className="shrink-0 text-[11px] font-medium text-rose-700 underline underline-offset-2 hover:text-rose-800"
         >
           重试
         </button>
@@ -207,27 +210,24 @@ export function Field({
 }) {
   return (
     <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-ink-soft">{label}</span>
       {children}
-      {hint && <span className="text-[11px] text-slate-600">{hint}</span>}
+      {hint && <span className="text-[11px] text-ink-muted">{hint}</span>}
     </label>
   )
 }
 
-const INPUT_CLASS =
-  'w-full rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-[13px] text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-indigo-400/60 focus:ring-2 focus:ring-indigo-500/15'
-
 export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={cx(INPUT_CLASS, className)} />
+  return <input {...props} className={cx('control', className)} />
 }
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea {...props} className={cx(INPUT_CLASS, 'resize-y', className)} />
+  return <textarea {...props} className={cx('control resize-y', className)} />
 }
 
 export function Select({ className, children, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
-    <select {...props} className={cx(INPUT_CLASS, 'appearance-none', className)}>
+    <select {...props} className={cx('control appearance-none', className)}>
       {children}
     </select>
   )
@@ -235,8 +235,8 @@ export function Select({ className, children, ...props }: SelectHTMLAttributes<H
 
 export function Spinner({ label }: { label?: string }) {
   return (
-    <div className="flex items-center gap-2 text-xs text-slate-400">
-      <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.6px] border-indigo-400 border-t-transparent" />
+    <div className="flex items-center gap-2 text-xs text-ink-muted">
+      <span className="h-3.5 w-3.5 animate-spin rounded-full border-[1.5px] border-accent border-t-transparent" />
       {label}
     </div>
   )

@@ -37,7 +37,8 @@ interface ReviewPayload {
 
 /** 智能体产出卡片：把结构化 payload 中的关键信息渲染出来，而不是只显示一段文本。 */
 export function AgentOutputCard({ output }: { output: AgentOutput }) {
-  const tone: BadgeTone = (AGENT_TONE as Record<string, BadgeTone | undefined>)[output.agent] ?? 'neutral'
+  const tone: BadgeTone =
+    (AGENT_TONE as Record<string, BadgeTone | undefined>)[output.agent] ?? 'neutral'
   const references = extractReferences(output.payload)
   const stages = extractStages(output.payload)
   const review = extractReview(output.payload)
@@ -48,20 +49,20 @@ export function AgentOutputCard({ output }: { output: AgentOutput }) {
       title={
         <span className="flex items-center gap-2">
           <Badge tone={tone}>{output.name}</Badge>
-          <span className="text-slate-300">{output.title}</span>
+          <span className="font-normal text-ink-soft">{output.title}</span>
         </span>
       }
     >
       <div className="space-y-3">
         {output.summary && (
-          <p className="text-[13px] leading-relaxed text-slate-300">{output.summary}</p>
+          <p className="text-[13px] leading-relaxed text-ink-soft">{output.summary}</p>
         )}
 
         {output.highlights.length > 0 && (
           <ul className="space-y-1.5">
             {output.highlights.map((line, index) => (
-              <li key={index} className="flex gap-2 text-xs leading-relaxed text-slate-400">
-                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-indigo-400/70" />
+              <li key={index} className="flex gap-2 text-xs leading-relaxed text-ink-soft">
+                <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-slate-400" />
                 <span>{line}</span>
               </li>
             ))}
@@ -69,15 +70,15 @@ export function AgentOutputCard({ output }: { output: AgentOutput }) {
         )}
 
         {stages.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-1">
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
             {stages.map((stage, index) => (
               <span
                 key={index}
-                className="rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-1.5 text-[11px] text-slate-300"
+                className="rounded-md border border-line bg-surface-muted px-2 py-1 text-[11px] text-ink-soft"
               >
-                <span className="font-medium text-slate-200">{stage.name}</span>
+                <span className="font-medium text-ink">{stage.name}</span>
                 {stage.taskCount > 0 && (
-                  <span className="ml-1.5 text-slate-500">{stage.taskCount} 个任务</span>
+                  <span className="ml-1.5 text-ink-muted">{stage.taskCount} 个任务</span>
                 )}
               </span>
             ))}
@@ -85,31 +86,31 @@ export function AgentOutputCard({ output }: { output: AgentOutput }) {
         )}
 
         {review && (
-          <div className="rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-3">
-            <div className="flex items-center gap-2">
+          <div className="surface-muted px-3.5 py-3">
+            <div className="flex flex-wrap items-center gap-2">
               <Badge tone={review.approved ? 'emerald' : 'amber'}>
                 {review.approved ? '评审通过' : '需修订'}
               </Badge>
-              <span className="text-[11px] text-slate-400">质量评分 {review.score}</span>
-              <span className="text-[11px] text-slate-600">· {review.reviewer}</span>
+              <span className="text-[11px] text-ink-soft">质量评分 {review.score}</span>
+              <span className="text-[11px] text-ink-muted">· {review.reviewer}</span>
             </div>
             {review.issues.length > 0 && (
               <ul className="mt-2.5 space-y-1.5">
                 {review.issues.map((issue, index) => (
-                  <li key={index} className="text-[11px] leading-relaxed text-slate-400">
+                  <li key={index} className="text-[11px] leading-relaxed text-ink-soft">
                     <span
                       className={cx(
-                        'mr-1.5 rounded px-1 py-px text-[10px]',
+                        'mr-1.5 rounded px-1 py-px text-[10px] font-medium',
                         issue.severity === 'high'
-                          ? 'bg-rose-500/15 text-rose-300'
+                          ? 'bg-rose-100 text-rose-700'
                           : issue.severity === 'medium'
-                            ? 'bg-amber-500/15 text-amber-300'
-                            : 'bg-slate-500/15 text-slate-400',
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-slate-100 text-slate-500',
                       )}
                     >
                       {issue.severity === 'high' ? '高' : issue.severity === 'medium' ? '中' : '低'}
                     </span>
-                    {issue.category && <span className="text-slate-300">{issue.category}：</span>}
+                    {issue.category && <span className="text-ink">{issue.category}：</span>}
                     {issue.detail}
                   </li>
                 ))}
@@ -119,18 +120,18 @@ export function AgentOutputCard({ output }: { output: AgentOutput }) {
         )}
 
         {references.length > 0 && (
-          <details className="group rounded-xl border border-white/8 bg-white/[0.02] px-3.5 py-2.5">
-            <summary className="cursor-pointer list-none text-[11px] text-slate-400 hover:text-slate-300">
+          <details className="group surface-muted px-3.5 py-2.5">
+            <summary className="cursor-pointer list-none text-[11px] text-ink-soft hover:text-ink">
               引用知识库片段 {references.length} 条
-              <span className="ml-1 text-slate-600 group-open:hidden">展开</span>
+              <span className="ml-1 text-ink-muted group-open:hidden">展开</span>
             </summary>
             <ul className="mt-2.5 space-y-2">
               {references.map((item) => (
-                <li key={item.id} className="text-[11px] leading-relaxed text-slate-500">
-                  <span className="text-slate-400">
+                <li key={item.id} className="text-[11px] leading-relaxed text-ink-muted">
+                  <span className="text-ink-soft">
                     [{item.subject || '通用'}] {item.source || item.id}
                   </span>
-                  <span className="ml-1.5 text-slate-600">相似度 {item.score.toFixed(2)}</span>
+                  <span className="ml-1.5">相似度 {item.score.toFixed(2)}</span>
                   <p className="mt-0.5 line-clamp-3">{item.text}</p>
                 </li>
               ))}

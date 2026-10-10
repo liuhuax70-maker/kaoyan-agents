@@ -93,23 +93,23 @@ export const REMINDER_TYPE_LABEL: Record<string, string> = {
 export function statusTone(status: TaskStatus): string {
   switch (status) {
     case 'done':
-      return 'bg-emerald-500/12 text-emerald-300 ring-emerald-500/25'
+      return 'bg-emerald-50 text-emerald-700 ring-emerald-200'
     case 'doing':
-      return 'bg-sky-500/12 text-sky-300 ring-sky-500/25'
+      return 'bg-blue-50 text-blue-700 ring-blue-200'
     case 'skipped':
-      return 'bg-slate-500/12 text-slate-400 ring-slate-500/25'
+      return 'bg-slate-100 text-slate-500 ring-slate-200'
     default:
-      return 'bg-slate-500/12 text-slate-300 ring-slate-500/25'
+      return 'bg-slate-100 text-slate-600 ring-slate-200'
   }
 }
 
 export function priorityTone(priority: Priority): string {
   switch (priority) {
     case 'high':
-      return 'bg-rose-500/12 text-rose-300 ring-rose-500/25'
+      return 'bg-rose-50 text-rose-700 ring-rose-200'
     case 'medium':
-      return 'bg-amber-500/12 text-amber-300 ring-amber-500/25'
+      return 'bg-amber-50 text-amber-700 ring-amber-200'
     default:
-      return 'bg-slate-500/12 text-slate-300 ring-slate-500/25'
+      return 'bg-slate-100 text-slate-600 ring-slate-200'
   }
 }
