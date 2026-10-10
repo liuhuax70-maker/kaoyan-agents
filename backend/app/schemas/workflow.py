@@ -6,6 +6,7 @@ from app.schemas.diagnosis import DiagnosisReport
 from app.schemas.nudge import NudgeMessage, WeeklyDigest
 from app.schemas.plan import PlanDraft, TaskBreakdown
 from app.schemas.resource import ResourcePlan
+from app.schemas.review import PlanReviewResult
 from app.schemas.tutoring import TutoringAnswer
 
 
@@ -45,6 +46,7 @@ class WorkflowResult(BaseModel):
     tutoring: TutoringAnswer | None = None
     nudge: NudgeMessage | None = None
     digest: WeeklyDigest | None = None
+    plan_review: PlanReviewResult | None = None
 
     errors: list[str] = Field(default_factory=list)
     events: list[WorkflowEvent] = Field(default_factory=list)

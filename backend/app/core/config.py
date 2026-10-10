@@ -169,6 +169,16 @@ class LLMSection(BaseModel):
         return bool(config["api_key"])
 
 
+class WorkflowSection(BaseModel):
+    """多智能体协作配置。"""
+
+    enable_plan_review: bool = True
+    """生成计划后是否自动触发评审协作。"""
+
+    plan_review_process: Literal["crew", "local"] = "crew"
+    """评审执行方式：crew 走 CrewAI 多角色协作，local 走单智能体离线评审。"""
+
+
 class ObservabilitySection(BaseModel):
     """可观测性配置（LangFuse）。"""
 
@@ -205,6 +215,7 @@ class Settings(BaseSettings):
     celery: CelerySection = Field(default_factory=CelerySection)
     vector: VectorSection = Field(default_factory=VectorSection)
     llm: LLMSection = Field(default_factory=LLMSection)
+    workflow: WorkflowSection = Field(default_factory=WorkflowSection)
     observability: ObservabilitySection = Field(default_factory=ObservabilitySection)
 
 

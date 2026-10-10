@@ -115,6 +115,16 @@ DIGEST_USER_TEMPLATE = """【考生画像】
 {output_contract}
 """
 
+REVIEW_USER_TEMPLATE = """【考生画像】
+{learner_context}
+
+【待评审的计划草稿】
+{plan_context}
+
+【输出结构】
+{output_contract}
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class PromptSpec:
@@ -180,6 +190,12 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         task=AgentTask.WEEKLY_DIGEST,
         role=COACH_ROLE,
         template=_make(COACH_ROLE, DIGEST_USER_TEMPLATE),
+        required_variables=("learner_context", "plan_context"),
+    ),
+    AgentTask.PLAN_REVIEW: PromptSpec(
+        task=AgentTask.PLAN_REVIEW,
+        role=REVIEWER_ROLE,
+        template=_make(REVIEWER_ROLE, REVIEW_USER_TEMPLATE),
         required_variables=("learner_context", "plan_context"),
     ),
 }

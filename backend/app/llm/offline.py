@@ -512,6 +512,96 @@ def build_weekly_digest(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def build_plan_review(context: dict[str, Any]) -> dict[str, Any]:
+    """对学习计划做规则化评审。
+
+    评审不是走过场：这里真的会校验任务粒度、阶段划分、科目覆盖与输入完整性，
+    因此离线状态下也能给出有依据的评审结论。
+    """
+
+    issues: list[dict[str, Any]] = []
+    attention = int(context.get("attention_span") or 50)
+    max_minutes = int(context.get("max_task_minutes") or 0)
+    stage_count = int(context.get("stage_count") or 0)
+    task_count = int(context.get("task_count") or 0)
+    horizon = int(context.get("horizon_days") or 0)
+    days_left = context.get("days_left")
+    subjects = _subjects(context)
+    weak = _weak_subjects(context)
+
+    if max_minutes > attention:
+        issues.append(
+            {
+                "severity": "high",
+                "category": "任务粒度",
+                "detail": f"存在 {max_minutes} 分钟的单个任务，超过单次专注时长 {attention} 分钟",
+                "suggestion": "把超长任务拆成两个专注时长以内的小任务",
+            }
+        )
+
+    if horizon >= 90 and stage_count < 3:
+        issues.append(
+            {
+                "severity": "high",
+                "category": "阶段划分",
+                "detail": f"计划周期 {horizon} 天但只有 {stage_count} 个阶段，缺少阶段性检验点",
+                "suggestion": "至少划分基础、强化、冲刺三个阶段并各自设定验收标准",
+            }
+        )
+
+    if task_count < len(subjects) * 2:
+        issues.append(
+            {
+                "severity": "medium",
+                "category": "任务覆盖",
+                "detail": f"{len(subjects)} 门科目仅拆出 {task_count} 个任务，单科训练量不足",
+                "suggestion": "每门科目在每个阶段至少安排一个学习任务与一个练习任务",
+            }
+        )
+
+    missing_weak = [name for name in sorted(weak) if name not in subjects]
+    if missing_weak:
+        issues.append(
+            {
+                "severity": "medium",
+                "category": "科目覆盖",
+                "detail": f"薄弱科目 {'、'.join(missing_weak)} 未出现在计划科目中",
+                "suggestion": "把薄弱科目补进计划并提升其任务优先级",
+            }
+        )
+
+    if days_left is None:
+        issues.append(
+            {
+                "severity": "low",
+                "category": "输入完整性",
+                "detail": "档案缺少考试日期，计划按默认周期排布，可能与真实节奏不匹配",
+                "suggestion": "补充考试日期后重新生成计划",
+            }
+        )
+
+    weights = {"high": 15, "medium": 8, "low": 3}
+    penalty = sum(weights.get(str(item["severity"]), 0) for item in issues)
+    score = max(40, 100 - penalty)
+    blocking = any(item["severity"] == "high" for item in issues)
+
+    return {
+        "approved": not blocking,
+        "score": score,
+        "summary": (
+            f"计划整体可用，评分 {score} 分，发现 {len(issues)} 个待改进项"
+            if issues
+            else f"计划结构完整，评分 {score} 分，可以直接执行"
+        ),
+        "issues": issues,
+        "improvements": [
+            "把单次任务控制在专注时长以内，超长任务一律拆分",
+            "每门科目在每个阶段都安排学习与练习两类任务",
+            "每个阶段结束设置复盘节点，用得分率检验阶段成果",
+        ],
+    }
+
+
 OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
     "intent_routing": build_intent,
     "plan_draft": build_plan_draft,
@@ -521,6 +611,7 @@ OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
     "resource_plan": build_resource_plan,
     "nudge": build_nudge,
     "weekly_digest": build_weekly_digest,
+    "plan_review": build_plan_review,
 }
 
 

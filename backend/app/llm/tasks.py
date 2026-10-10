@@ -13,6 +13,7 @@ from app.schemas import (
     IntentDecision,
     NudgeMessage,
     PlanDraft,
+    PlanReviewResult,
     ResourcePlan,
     TaskBreakdown,
     TutoringAnswer,
@@ -31,6 +32,7 @@ class AgentTask(StrEnum):
     RESOURCE_PLAN = "resource_plan"
     NUDGE = "nudge"
     WEEKLY_DIGEST = "weekly_digest"
+    PLAN_REVIEW = "plan_review"
 
 
 TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
@@ -42,6 +44,7 @@ TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
     AgentTask.RESOURCE_PLAN: ResourcePlan,
     AgentTask.NUDGE: NudgeMessage,
     AgentTask.WEEKLY_DIGEST: WeeklyDigest,
+    AgentTask.PLAN_REVIEW: PlanReviewResult,
 }
 
 

@@ -10,6 +10,7 @@ from app.prompts.context import (
     render_learner,
     render_output_contract,
     render_plan,
+    render_plan_draft,
     render_reminder,
     render_subjects,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "render_learner",
     "render_output_contract",
     "render_plan",
+    "render_plan_draft",
     "render_reminder",
     "render_subjects",
 ]

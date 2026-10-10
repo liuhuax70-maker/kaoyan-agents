@@ -5,7 +5,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from app.schemas import LearnerSnapshot, PlanSnapshot, ReminderSnapshot
+from app.schemas import LearnerSnapshot, PlanDraft, PlanSnapshot, ReminderSnapshot
 
 MAX_TASK_LINES = 20
 NO_DATA = "- （暂无数据）"
@@ -103,6 +103,29 @@ def render_plan(plan: PlanSnapshot | None, limit: int = MAX_TASK_LINES) -> str:
                 f"（{task.duration_minutes} 分钟，优先级 {task.priority}）"
             )
 
+    return "\n".join(lines)
+
+
+def render_plan_draft(draft: PlanDraft) -> str:
+    """渲染待评审的计划草稿。"""
+
+    lines = [
+        f"计划标题：{draft.title}",
+        f"计划目标：{draft.goal}",
+        f"计划周期：{draft.horizon_days} 天｜每日投入 {draft.daily_hours:g} 小时",
+        f"阶段数量：{len(draft.stages)}｜任务总数：{draft.total_tasks}",
+    ]
+    for stage in draft.stages:
+        durations = [task.duration_minutes for task in stage.tasks] or [0]
+        lines.append(
+            f"· 阶段「{stage.name}」（第 {stage.start_offset}-{stage.end_offset} 天）："
+            f"{stage.focus}；任务 {len(stage.tasks)} 个，"
+            f"单任务时长 {min(durations)}-{max(durations)} 分钟"
+        )
+        for task in stage.tasks[:3]:
+            lines.append(f"    - {task.title}（{task.duration_minutes} 分钟，{task.priority}）")
+    if draft.notes:
+        lines.append("计划自述的注意事项：" + "；".join(draft.notes))
     return "\n".join(lines)
 
 
