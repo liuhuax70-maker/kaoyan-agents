@@ -1,12 +1,21 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-import { ApiError, api, type CreateTargetPayload } from '@/lib/api'
-import type { DashboardRead, ProfileInput, TargetRead, UserRead } from '@/lib/types'
+import { ApiError, api, toTurns, type CreateTargetPayload } from '@/lib/api'
+import type {
+  ChatTurn,
+  ConversationSummary,
+  DashboardRead,
+  ProfileInput,
+  TargetRead,
+  UserRead,
+} from '@/lib/types'
 
 const STORAGE_KEY = 'kaoyan-agents.userId'
+const CONVERSATION_PAGE_SIZE = 30
 
 interface WorkspaceValue {
   userId: number | null
@@ -23,11 +32,27 @@ interface WorkspaceValue {
   refresh: () => Promise<void>
   saveProfile: (payload: Partial<ProfileInput>) => Promise<void>
   saveTarget: (payload: Omit<CreateTargetPayload, 'user_id'>) => Promise<void>
+
+  /** ---- 会话：侧边栏与对话页共享 ---- */
+  conversations: ConversationSummary[]
+  reloadConversations: () => Promise<void>
+  activeConversationId: number | null
+  /** 加载指定会话的消息并跳转到对话页 */
+  openConversation: (conversationId: number) => Promise<void>
+  /** 开始一段新对话 */
+  startNewChat: () => void
+  turns: ChatTurn[]
+  turnsLoading: boolean
+  appendTurn: (turn: ChatTurn) => void
+  /** 把服务端返回的会话 id 绑定到当前对话 */
+  bindConversation: (conversationId: number) => void
 }
 
 const WorkspaceContext = createContext<WorkspaceValue | null>(null)
 
 export function WorkspaceProvider({ children }: { children: ReactNode }) {
+  const router = useRouter()
+
   const [userId, setUserId] = useState<number | null>(null)
   const [user, setUser] = useState<UserRead | null>(null)
   const [target, setTarget] = useState<TargetRead | null>(null)
@@ -35,6 +60,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const [booting, setBooting] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const [conversations, setConversations] = useState<ConversationSummary[]>([])
+  const [activeConversationId, setActiveConversationId] = useState<number | null>(null)
+  const [turns, setTurns] = useState<ChatTurn[]>([])
+  const [turnsLoading, setTurnsLoading] = useState(false)
 
   const load = useCallback(async (id: number) => {
     const [loadedUser, targets, board] = await Promise.all([
@@ -46,6 +76,18 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setTarget(targets[0] ?? null)
     setDashboard(board)
   }, [])
+
+  const reloadConversations = useCallback(async () => {
+    if (userId === null) {
+      setConversations([])
+      return
+    }
+    try {
+      setConversations(await api.listConversations(userId, CONVERSATION_PAGE_SIZE))
+    } catch {
+      // 历史列表属于辅助信息，失败不影响主流程
+    }
+  }, [userId])
 
   // 首次挂载：尝试用本地记录的 userId 恢复会话
   useEffect(() => {
@@ -72,6 +114,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       })
       .finally(() => setBooting(false))
   }, [load])
+
+  useEffect(() => {
+    void reloadConversations()
+  }, [reloadConversations])
 
   const connect = useCallback(
     async (username: string, nickname?: string) => {
@@ -120,6 +166,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setTarget(null)
     setDashboard(null)
     setError(null)
+    setConversations([])
+    setActiveConversationId(null)
+    setTurns([])
   }, [])
 
   const refresh = useCallback(async () => {
@@ -174,6 +223,39 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [load, userId],
   )
 
+  const openConversation = useCallback(
+    async (conversationId: number) => {
+      setTurnsLoading(true)
+      try {
+        const detail = await api.getConversation(conversationId)
+        setTurns(toTurns(detail))
+        setActiveConversationId(detail.id)
+        setError(null)
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : '加载会话失败')
+      } finally {
+        setTurnsLoading(false)
+        router.push('/chat')
+      }
+    },
+    [router],
+  )
+
+  const startNewChat = useCallback(() => {
+    setActiveConversationId(null)
+    setTurns([])
+    setError(null)
+    router.push('/chat')
+  }, [router])
+
+  const appendTurn = useCallback((turn: ChatTurn) => {
+    setTurns((current) => [...current, turn])
+  }, [])
+
+  const bindConversation = useCallback((conversationId: number) => {
+    setActiveConversationId(conversationId)
+  }, [])
+
   const value = useMemo<WorkspaceValue>(
     () => ({
       userId,
@@ -189,6 +271,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refresh,
       saveProfile,
       saveTarget,
+      conversations,
+      reloadConversations,
+      activeConversationId,
+      openConversation,
+      startNewChat,
+      turns,
+      turnsLoading,
+      appendTurn,
+      bindConversation,
     }),
     [
       userId,
@@ -203,6 +294,15 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       refresh,
       saveProfile,
       saveTarget,
+      conversations,
+      reloadConversations,
+      activeConversationId,
+      openConversation,
+      startNewChat,
+      turns,
+      turnsLoading,
+      appendTurn,
+      bindConversation,
     ],
   )
 

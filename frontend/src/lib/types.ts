@@ -191,6 +191,18 @@ export interface ChatResponse {
   trace_url: string | null
 }
 
+/** 对话页渲染用的单轮消息，由历史消息或流式结果归一化而来。 */
+export interface ChatTurn {
+  role: 'user' | 'assistant'
+  content: string
+  outputs: AgentOutput[]
+  intent?: string
+  agents?: string[]
+  planId?: number | null
+  traceUrl?: string | null
+  createdAt?: string
+}
+
 export interface ChatMessageRead {
   id: number
   conversation_id: number

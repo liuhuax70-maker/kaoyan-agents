@@ -93,28 +93,74 @@ export function IconChart(props: IconProps) {
   )
 }
 
-export function IconSend(props: IconProps) {
+export function IconRefresh(props: IconProps) {
   return (
     <Base {...props}>
-      <path d="M22 2 11 13" />
-      <path d="M22 2 15 22l-4-9-9-4Z" />
+      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+    </Base>
+  )
+}
+
+/* ---------- 对话页专用 ---------- */
+
+export function IconPlus(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </Base>
+  )
+}
+
+export function IconArrowUp(props: IconProps) {
+  return (
+    <Base {...props} strokeWidth={2}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
     </Base>
   )
 }
 
 export function IconStop(props: IconProps) {
   return (
-    <Base {...props}>
-      <rect x="6" y="6" width="12" height="12" rx="2" />
+    <Base {...props} strokeWidth={0}>
+      <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
     </Base>
   )
 }
 
-export function IconRefresh(props: IconProps) {
+/** 「联网搜索」 */
+export function IconGlobe(props: IconProps) {
   return (
     <Base {...props}>
-      <path d="M21 12a9 9 0 1 1-3-6.7L21 8" />
-      <path d="M21 3v5h-5" />
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" />
+    </Base>
+  )
+}
+
+/** 「深度思考」 */
+export function IconBulb(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M9 18h6M10 21h4" />
+      <path d="M12 3a6 6 0 0 1 3.5 10.9c-.5.4-.8 1-.8 1.6H9.3c0-.6-.3-1.2-.8-1.6A6 6 0 0 1 12 3Z" />
+    </Base>
+  )
+}
+
+export function IconCopy(props: IconProps) {
+  return (
+    <Base {...props}>
+      <rect x="9" y="9" width="11" height="11" rx="2.4" />
+      <path d="M5 15V6a2 2 0 0 1 2-2h9" />
+    </Base>
+  )
+}
+
+export function IconMenu(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M4 6h16M4 12h16M4 18h16" />
     </Base>
   )
 }

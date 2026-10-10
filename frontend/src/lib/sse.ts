@@ -13,6 +13,7 @@ export async function streamChat(
     message: string
     conversation_id?: number | null
     enable_review?: boolean
+    enable_retrieval?: boolean
   },
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,

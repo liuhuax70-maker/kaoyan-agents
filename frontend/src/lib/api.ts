@@ -1,5 +1,7 @@
 import type {
+  AgentOutput,
   ChatResponse,
+  ChatTurn,
   ConversationRead,
   ConversationSummary,
   DashboardRead,
@@ -213,4 +215,27 @@ export const api = {
 /** 计划中的全部任务（用于看板统计） */
 export function flattenTasks(stages: StageRead[]): TaskRead[] {
   return stages.flatMap((stage) => stage.tasks)
+}
+
+/** 把持久化的会话消息还原为对话页所需的轮次。 */
+export function toTurns(detail: ConversationRead): ChatTurn[] {
+  return detail.messages.map((message) => {
+    const payload = message.payload as { outputs?: AgentOutput[] }
+    const meta = message.meta as {
+      intent?: string
+      agents?: string[]
+      plan_id?: number | null
+      trace_url?: string | null
+    }
+    return {
+      role: message.role === 'user' ? 'user' : 'assistant',
+      content: message.content,
+      outputs: Array.isArray(payload.outputs) ? payload.outputs : [],
+      intent: meta.intent,
+      agents: meta.agents,
+      planId: meta.plan_id ?? null,
+      traceUrl: meta.trace_url ?? null,
+      createdAt: message.created_at,
+    }
+  })
 }

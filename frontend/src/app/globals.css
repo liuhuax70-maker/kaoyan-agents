@@ -1,22 +1,31 @@
 @import 'tailwindcss';
 
 /*
- * 浅色主题令牌。用 @theme 声明后可以直接用语义化类名：
- * bg-page / bg-surface / border-line / text-ink / text-ink-muted / bg-accent ...
- * 组件里不写死色值，后续换配色只改这一处。
+ * 设计令牌参考 DeepSeek 网页端：主色 #3964fe、正文 #1d1d1f、
+ * 次要文字 #81858c 均取自其站点样式，其余按同一套灰阶补齐。
+ * 组件里只用语义化类名（bg-surface / border-line / text-ink-muted ...），
+ * 换色只改这一处。
  */
 @theme {
-  --color-page: #f5f6f8;
+  --color-page: #ffffff;
+  --color-sidebar: #f8f9fb;
   --color-surface: #ffffff;
-  --color-surface-muted: #fafbfc;
-  --color-line: #e5e7eb;
-  --color-line-strong: #d6d9e0;
-  --color-ink: #14161a;
-  --color-ink-soft: #4a5261;
-  --color-ink-muted: #7b8494;
-  --color-accent: #2563eb;
-  --color-accent-hover: #1d4ed8;
-  --color-accent-soft: #eef3fe;
+  --color-surface-muted: #f5f6f8;
+  --color-line: #e7e7ea;
+  --color-line-strong: #dcdce0;
+  --color-ink: #1d1d1f;
+  --color-ink-soft: #4a4b50;
+  --color-ink-muted: #81858c;
+  --color-accent: #3964fe;
+  --color-accent-hover: #2f56e8;
+  --color-accent-soft: #eef1ff;
+
+  --radius-card: 14px;
+  --radius-composer: 24px;
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei',
+    sans-serif;
 }
 
 :root {
@@ -31,10 +40,34 @@ body {
 body {
   background-color: var(--color-page);
   color: var(--color-ink);
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC',
-    sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* 对话正文的行距与段落节奏，贴近长文阅读 */
+.answer-body p {
+  margin: 0 0 12px;
+  line-height: 1.75;
+}
+
+.answer-body > :last-child {
+  margin-bottom: 0;
+}
+
+.answer-body strong {
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.answer-body ul,
+.answer-body ol {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  line-height: 1.75;
+}
+
+.answer-body li {
+  margin-bottom: 4px;
 }
 
 /* ---------- 复用的容器与控件 ---------- */
@@ -42,13 +75,12 @@ body {
 .surface {
   background: var(--color-surface);
   border: 1px solid var(--color-line);
-  border-radius: 10px;
+  border-radius: var(--radius-card);
 }
 
 .surface-muted {
   background: var(--color-surface-muted);
-  border: 1px solid var(--color-line);
-  border-radius: 8px;
+  border-radius: 12px;
 }
 
 .control {
@@ -56,10 +88,10 @@ body {
   min-width: 0;
   background: var(--color-surface);
   border: 1px solid var(--color-line-strong);
-  border-radius: 8px;
-  padding: 7px 11px;
+  border-radius: 12px;
+  padding: 8px 12px;
   font-size: 13px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--color-ink);
   outline: none;
   transition:
@@ -73,12 +105,29 @@ body {
 
 .control:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgb(37 99 235 / 0.12);
+  box-shadow: 0 0 0 3px rgb(57 100 254 / 0.12);
 }
 
 .control:disabled {
   background: #f3f4f6;
   color: var(--color-ink-muted);
+}
+
+/* 输入区内的无边框文本域 */
+.control-bare {
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: none;
+  outline: none;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.control-bare::placeholder {
+  color: #9aa0a8;
 }
 
 /* ---------- 滚动条 ---------- */
@@ -93,14 +142,14 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgb(100 116 139 / 0.26);
+  background: rgb(120 128 140 / 0.24);
   border-radius: 9999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgb(71 85 105 / 0.42);
+  background: rgb(100 108 120 / 0.4);
   background-clip: content-box;
 }
 

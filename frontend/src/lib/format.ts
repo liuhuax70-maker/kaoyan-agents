@@ -90,6 +90,39 @@ export const REMINDER_TYPE_LABEL: Record<string, string> = {
   custom: '自定义',
 }
 
+/**
+ * 按时间远近把条目分组，用于侧边栏的「今天 / 7 天内 / 30 天内 / 更早」。
+ * 空分组会被剔除。
+ */
+export function groupByRecency<T>(
+  items: T[],
+  getDate: (item: T) => string,
+): Array<{ label: string; items: T[] }> {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const day = 86_400_000
+
+  const buckets = [
+    { label: '今天', min: startOfToday, max: Number.POSITIVE_INFINITY },
+    { label: '7 天内', min: startOfToday - 6 * day, max: startOfToday },
+    { label: '30 天内', min: startOfToday - 29 * day, max: startOfToday - 6 * day },
+    { label: '更早', min: Number.NEGATIVE_INFINITY, max: startOfToday - 29 * day },
+  ]
+
+  return buckets
+    .map((bucket) => ({
+      label: bucket.label,
+      items: items.filter((item) => {
+        const parsed = new Date(getDate(item)).getTime()
+        if (Number.isNaN(parsed)) {
+          return false
+        }
+        return parsed >= bucket.min && parsed < bucket.max
+      }),
+    }))
+    .filter((bucket) => bucket.items.length > 0)
+}
+
 export function statusTone(status: TaskStatus): string {
   switch (status) {
     case 'done':
