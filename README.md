@@ -103,8 +103,8 @@ npm config set registry https://registry.npmmirror.com
 | 节点 | 内容 | 状态 |
 | --- | --- | --- |
 | 1 | 工程骨架、配置体系、Docker 编排、健康检查 | 已完成 |
-| 2 | 学习数据模型与 Alembic 迁移 | 待开始 |
-| 3 | 智能体提示词体系与结构化输出 | 待开始 |
+| 2 | 学习数据模型与 Alembic 迁移 | 已完成 |
+| 3 | 智能体提示词体系与结构化输出 | 已完成 |
 | 4 | LangGraph 任务工作流编排 | 待开始 |
 | 5 | CrewAI 多角色智能体 | 待开始 |
 | 6 | Milvus 向量库与 RAG 检索 | 待开始 |
