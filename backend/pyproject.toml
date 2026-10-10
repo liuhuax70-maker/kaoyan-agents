@@ -58,3 +58,5 @@ known-third-party = ["alembic"]
 [tool.ruff.lint.per-file-ignores]
 "alembic/env.py" = ["E402", "F401"]
 "tests/*" = ["S101"]
+# FastAPI 依赖注入的标准写法就是在默认值里调用 Depends / Query / Body
+"app/api/routes/*" = ["B008"]

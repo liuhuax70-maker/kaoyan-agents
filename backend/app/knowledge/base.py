@@ -125,6 +125,12 @@ class KnowledgeBase:
 
         return await self._store.count()
 
+    async def reset(self) -> None:
+        """清空集合。"""
+
+        await self._store.drop()
+        logger.info("知识库集合已清空：%s", self.collection)
+
     async def stats(self) -> dict[str, Any]:
         """返回知识库运行状态。"""
 

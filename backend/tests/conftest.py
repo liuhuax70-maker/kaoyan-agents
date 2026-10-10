@@ -69,7 +69,14 @@ async def fake_cache(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[FakeRedis
 
 @pytest.fixture
 async def client() -> AsyncIterator[AsyncClient]:
-    """返回直连 ASGI 应用的异步客户端。"""
+    """返回直连 ASGI 应用的异步客户端。
+
+    每个用例重建表结构，保证接口测试之间互不干扰。
+    """
+
+    async with db.engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as async_client:

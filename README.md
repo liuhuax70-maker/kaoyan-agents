@@ -115,6 +115,36 @@ pip install -i https://pypi.tuna.tsinghua.edu.cn/simple -e ".[dev]"
 npm config set registry https://registry.npmmirror.com
 ```
 
+## 接口一览
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| POST | `/api/users` | 创建用户（可同时初始化学习档案） |
+| GET | `/api/users/{id}` | 查询用户与档案 |
+| PATCH | `/api/users/{id}` | 更新用户与学习档案 |
+| POST | `/api/targets` | 创建备考目标与科目 |
+| GET | `/api/targets?user_id=` | 目标列表 |
+| GET | `/api/targets/{id}` | 目标详情 |
+| POST | `/api/plans/generate` | 触发工作流生成计划并落库 |
+| GET | `/api/plans?user_id=` | 计划列表（含阶段与任务） |
+| GET | `/api/plans/{id}` | 计划详情 |
+| GET | `/api/tasks?user_id=&status=` | 任务列表 |
+| PATCH | `/api/tasks/{id}` | 任务打卡与调整 |
+| GET | `/api/tasks/{id}/progress` | 打卡历史 |
+| POST | `/api/chat` | 多智能体对话 |
+| POST | `/api/chat/stream` | 多智能体对话（SSE 流式） |
+| GET | `/api/chat/conversations?user_id=` | 会话列表与详情 |
+| GET | `/api/reminders?user_id=` | 提醒记录 |
+| POST | `/api/reminders/run?kind=` | 手动触发一轮提醒（联调与演示） |
+| GET | `/api/knowledge/stats` | 知识库状态 |
+| POST | `/api/knowledge/ingest` | 写入内置语料 |
+| POST | `/api/knowledge/search` | 语义检索 |
+| GET | `/api/overview` | 系统能力总览（角色 / 提示词 / 工作流 / 定时计划） |
+| GET | `/api/dashboard?user_id=` | 工作台概览（进度 / 计划 / 提醒） |
+| GET | `/api/health` | 健康检查 |
+
+交互式文档：http://localhost:8000/docs
+
 ## 开发节点
 
 | 节点 | 内容 | 状态 |
@@ -126,7 +156,7 @@ npm config set registry https://registry.npmmirror.com
 | 5 | CrewAI 多角色协作（计划评审） | 已完成 |
 | 6 | Milvus 向量库与 RAG 检索 | 已完成 |
 | 7 | Celery 提醒督促定时任务 | 已完成 |
-| 8 | FastAPI 业务接口层 | 待开始 |
+| 8 | FastAPI 业务接口层（含 SSE 流式） | 已完成 |
 | 9 | LangFuse 可观测性接入 | 待开始 |
 | 10 | Next.js 前端工作台 | 待开始 |
 | 11 | 测试、镜像与部署文档 | 待开始 |
