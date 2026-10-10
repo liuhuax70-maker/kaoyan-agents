@@ -1,0 +1,117 @@
+"""把智能体产出的计划草稿落库。
+
+草稿中的日期使用相对天数（day_offset），由这里换算成真实日期：
+让模型专注于「几天做什么」，日期计算交给确定性代码，避免模型算错日期。
+"""
+
+from datetime import date, timedelta
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.logging import get_logger
+from app.core.timeutil import utc_today
+from app.db.models import PlanStage, PlanStatus, StudyPlan, StudyTask, Subject, TaskStatus
+from app.schemas import PlanDraft
+
+logger = get_logger(__name__)
+
+
+async def persist_plan_draft(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    target_id: int,
+    draft: PlanDraft,
+    generated_by: str = "plan_generation",
+    today: date | None = None,
+) -> StudyPlan:
+    """把计划草稿写入数据库，返回已 flush 的计划对象。"""
+
+    start = today or utc_today()
+    horizon = max(draft.horizon_days, 1)
+
+    plan = StudyPlan(
+        user_id=user_id,
+        target_id=target_id,
+        title=draft.title,
+        goal=draft.goal,
+        strategy=draft.strategy,
+        horizon_days=horizon,
+        start_date=start,
+        end_date=start + timedelta(days=horizon),
+        total_hours=round(sum(stage.target_hours for stage in draft.stages), 1),
+        status=PlanStatus.ACTIVE,
+        generated_by=generated_by,
+        meta={"notes": draft.notes, "daily_hours": draft.daily_hours},
+    )
+    session.add(plan)
+    await session.flush()
+
+    subjects = await _subject_index(session, target_id)
+    task_count = 0
+
+    for index, stage_draft in enumerate(draft.stages):
+        stage = PlanStage(
+            plan_id=plan.id,
+            name=stage_draft.name,
+            stage_type=stage_draft.stage_type,
+            order_index=index,
+            start_date=start + timedelta(days=stage_draft.start_offset),
+            end_date=start + timedelta(days=stage_draft.end_offset),
+            focus=stage_draft.focus,
+            target_hours=stage_draft.target_hours,
+        )
+        session.add(stage)
+        await session.flush()
+
+        ordered = sorted(stage_draft.tasks, key=lambda item: (item.day_offset, item.title))
+        created: list[StudyTask] = []
+
+        for order, task_draft in enumerate(ordered):
+            task = StudyTask(
+                plan_id=plan.id,
+                stage_id=stage.id,
+                subject_id=subjects.get(task_draft.subject),
+                user_id=user_id,
+                title=task_draft.title,
+                description=task_draft.description,
+                task_type=task_draft.task_type,
+                planned_date=start + timedelta(days=task_draft.day_offset),
+                duration_minutes=task_draft.duration_minutes,
+                priority=task_draft.priority,
+                status=TaskStatus.TODO,
+                difficulty=task_draft.difficulty,
+                resource_hint=task_draft.resource_hint,
+                order_index=order,
+            )
+            session.add(task)
+            created.append(task)
+
+        await session.flush()
+
+        # 前置依赖需要等任务拿到主键后再回填
+        for order, task_draft in enumerate(ordered):
+            index_ref = task_draft.depends_on_index
+            if index_ref is not None and 0 <= index_ref < order:
+                created[order].depends_on_task_id = created[index_ref].id
+
+        task_count += len(created)
+
+    await session.flush()
+    logger.info(
+        "计划已落库 plan_id=%s，阶段 %d 个，任务 %d 个",
+        plan.id,
+        len(draft.stages),
+        task_count,
+    )
+    return plan
+
+
+async def _subject_index(session: AsyncSession, target_id: int) -> dict[str, int]:
+    """返回科目名称到主键的映射。"""
+
+    rows = await session.execute(
+        select(Subject.name, Subject.id).where(Subject.target_id == target_id)
+    )
+    return dict(rows.all())

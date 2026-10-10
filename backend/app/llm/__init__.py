@@ -1,6 +1,6 @@
 """模型调用层：任务定义、模型工厂、结构化解析与离线兜底。"""
 
-from app.llm.factory import build_chat_model
+from app.llm.factory import build_chat_model, invoke_agent_task
 from app.llm.offline import build_offline_payload, supports
 from app.llm.structured import extract_json_object, extract_usage, invoke_structured
 from app.llm.stub import StubChatModel
@@ -14,6 +14,7 @@ __all__ = [
     "build_offline_payload",
     "extract_json_object",
     "extract_usage",
+    "invoke_agent_task",
     "invoke_structured",
     "schema_for",
     "supports",

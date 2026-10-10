@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.core.config import DatabaseSection, get_settings
 from app.core.logging import get_logger
@@ -72,6 +73,9 @@ class Database:
         if self.section.is_sqlite:
             ensure_sqlite_directory(url)
             options["connect_args"] = {"check_same_thread": False}
+            # SQLite 使用 NullPool：连接随用随关，避免连接跨事件循环复用
+            # （Celery 任务每次都会新起一个 asyncio.run，复用连接会报 loop 绑定错误）
+            options["poolclass"] = NullPool
         else:
             options["pool_size"] = self.section.pool_size
             options["max_overflow"] = self.section.max_overflow

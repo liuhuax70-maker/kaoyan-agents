@@ -5,21 +5,21 @@
 """
 
 from datetime import date
-from typing import Any
+from typing import Any, TypeVar
 
 from langchain_core.messages import BaseMessage
 from pydantic import BaseModel
 
+from app.agents import compose_nudge
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.knowledge import retrieve_context
-from app.llm import AgentTask, StubChatModel, build_chat_model, invoke_structured
+from app.llm import AgentTask, invoke_agent_task
 from app.prompts import (
     ROLES,
     build_messages,
     render_learner,
     render_plan,
-    render_reminder,
     render_retrieved,
     render_subjects,
 )
@@ -28,7 +28,6 @@ from app.schemas import (
     DiagnosisReport,
     IntentDecision,
     LearnerSnapshot,
-    NudgeMessage,
     PlanDraft,
     PlanSnapshot,
     ReminderSnapshot,
@@ -50,6 +49,8 @@ from app.workflows.render import (
 from app.workflows.state import WorkflowState
 
 logger = get_logger(__name__)
+
+SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 DEFAULT_AGENTS = ("tutor",)
 MAX_AGENTS = 3
@@ -110,22 +111,18 @@ def _stub_context(state: WorkflowState) -> dict[str, Any]:
 async def _call(
     task: AgentTask,
     messages: list[BaseMessage],
-    schema: type[BaseModel],
+    schema: type[SchemaT],
     state: WorkflowState,
-) -> BaseModel:
+) -> SchemaT:
     """调用模型并解析结构化结果，失败时回退离线桩。"""
 
-    provider = state.get("provider")
-    context = _stub_context(state)
-
-    try:
-        model = build_chat_model(task.value, provider, stub_context=context)
-        return await invoke_structured(model, messages, schema)
-    except Exception as exc:  # noqa: BLE001 - 远程模型任何异常都应触发兜底
-        logger.warning("任务 %s 模型调用失败，回退离线桩：%s", task.value, exc)
-
-    fallback = StubChatModel(task=task.value, stub_context=context)
-    return await invoke_structured(fallback, messages, schema)
+    return await invoke_agent_task(
+        task.value,
+        messages,
+        schema,
+        provider=state.get("provider"),
+        stub_context=_stub_context(state),
+    )
 
 
 def _event(node: str, detail: str, agent: str = "") -> dict[str, Any]:
@@ -380,14 +377,7 @@ async def _run_coach(state: WorkflowState) -> dict[str, Any]:
         idle_days=snapshot.progress.idle_days,
         completion_rate=snapshot.progress.completion_rate,
     )
-    messages = build_messages(
-        AgentTask.NUDGE,
-        learner_context=render_learner(snapshot),
-        reminder_context=render_reminder(reminder),
-    )
-    message: NudgeMessage = await _call(  # type: ignore[assignment]
-        AgentTask.NUDGE, messages, NudgeMessage, state
-    )
+    message = await compose_nudge(snapshot, reminder, state.get("provider"))
     title, summary, highlights = render_nudge(message)
     payload = message.model_dump(mode="json")
     return {

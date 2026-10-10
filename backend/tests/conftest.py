@@ -29,11 +29,31 @@ os.environ["VECTOR__LOCAL_PATH"] = str(TMP_DIR / "vectorstore")
 
 import fakeredis.aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.cache.redis import cache  # noqa: E402
+from app.db.base import Base  # noqa: E402
+from app.db.session import db  # noqa: E402
 from app.main import app  # noqa: E402
 
 FakeRedisClient = fakeredis.aioredis.FakeRedis
+
+
+@pytest.fixture
+async def app_db() -> AsyncIterator[AsyncSession]:
+    """面向应用数据库单例的会话。
+
+    每个用例重建表结构以保证隔离；任务与 API 共用同一套配置，
+    因此这里必须用 ``db`` 单例而不是另建引擎。
+    """
+
+    async with db.engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+
+    async with db.session_factory() as session:
+        yield session
+        await session.rollback()
 
 
 @pytest.fixture

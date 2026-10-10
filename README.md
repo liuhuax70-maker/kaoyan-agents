@@ -86,11 +86,25 @@ uvicorn app.main:app --reload --port 8000
 - `CELERY__TASK_ALWAYS_EAGER=true`
 - `LLM__DEFAULT_PROVIDER=stub`（离线桩，无需密钥）
 
-### 4. 一键启动全部容器
+### 4. 启动定时任务（提醒督促）
+
+```bash
+cd backend
+# 执行队列
+celery -A app.tasks.celery_app:celery_app worker -l info
+# 定时调度
+celery -A app.tasks.celery_app:celery_app beat -l info
+```
+
+本地开发可设 `CELERY__TASK_ALWAYS_EAGER=true`，任务会在调用处直接同步执行，无需 Redis。
+
+### 5. 一键启动全部容器
 
 ```bash
 docker compose --profile app up -d
 ```
+
+包含 backend、worker、beat 三个应用容器与全部基础设施。
 
 ### 国内网络加速
 
@@ -111,7 +125,7 @@ npm config set registry https://registry.npmmirror.com
 | 4 | LangGraph 任务工作流编排 | 已完成 |
 | 5 | CrewAI 多角色协作（计划评审） | 已完成 |
 | 6 | Milvus 向量库与 RAG 检索 | 已完成 |
-| 7 | Celery 提醒督促定时任务 | 待开始 |
+| 7 | Celery 提醒督促定时任务 | 已完成 |
 | 8 | FastAPI 业务接口层 | 待开始 |
 | 9 | LangFuse 可观测性接入 | 待开始 |
 | 10 | Next.js 前端工作台 | 待开始 |

@@ -242,6 +242,20 @@ class LLMSection(BaseModel):
         return bool(config["api_key"])
 
 
+class ReminderSection(BaseModel):
+    """提醒督促配置。"""
+
+    enabled: bool = True
+    daily_hour: int = Field(default=8, ge=0, le=23)
+    overdue_hour: int = Field(default=20, ge=0, le=23)
+    idle_hour: int = Field(default=21, ge=0, le=23)
+    weekly_digest_weekday: int = Field(default=0, ge=0, le=6, description="0 为周一")
+    weekly_digest_hour: int = Field(default=20, ge=0, le=23)
+    idle_threshold_days: int = Field(default=3, ge=1, le=30)
+    dispatch_batch_size: int = Field(default=200, ge=1, le=2000)
+    max_retry: int = Field(default=2, ge=0, le=10)
+
+
 class WorkflowSection(BaseModel):
     """多智能体协作配置。"""
 
@@ -291,6 +305,7 @@ class Settings(BaseSettings):
     knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
     llm: LLMSection = Field(default_factory=LLMSection)
     workflow: WorkflowSection = Field(default_factory=WorkflowSection)
+    reminder: ReminderSection = Field(default_factory=ReminderSection)
     observability: ObservabilitySection = Field(default_factory=ObservabilitySection)
 
 
