@@ -6,14 +6,7 @@ import type { ReactNode } from 'react'
 
 import { ConnectGate } from './ConnectGate'
 import { useWorkspace } from './WorkspaceProvider'
-import {
-  IconChat,
-  IconDashboard,
-  IconPlan,
-  IconPlus,
-  IconRefresh,
-  IconSystem,
-} from './icons'
+import { IconChat, IconDashboard, IconPlan, IconPlus, IconRefresh } from './icons'
 import { Badge, Button, Spinner, cx } from './ui'
 import { groupByRecency } from '@/lib/format'
 
@@ -21,7 +14,6 @@ const NAV = [
   { href: '/', label: '工作台', Icon: IconDashboard },
   { href: '/chat', label: '多智能体对话', Icon: IconChat },
   { href: '/plan', label: '学习计划', Icon: IconPlan },
-  { href: '/system', label: '系统总览', Icon: IconSystem },
 ] as const
 
 export function AppShell({ children }: { children: ReactNode }) {

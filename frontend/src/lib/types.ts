@@ -253,68 +253,6 @@ export interface DashboardRead {
   recent_reminders: ReminderRead[]
 }
 
-export interface RoleInfo {
-  key: string
-  name: string
-  mission: string
-  capabilities: string[]
-}
-
-export interface PromptInfo {
-  task: string
-  role: string
-  role_name: string
-  required_variables: string[]
-}
-
-export interface WorkflowEdge {
-  from: string
-  to: string
-  kind: string
-}
-
-export interface WorkflowInfo {
-  entry: string
-  nodes: string[]
-  edges: WorkflowEdge[]
-}
-
-export interface ScheduleJob {
-  name: string
-  task: string
-  schedule: string
-}
-
-export interface CapabilityInfo {
-  llm_provider: string
-  llm_ready: boolean
-  embedding: string
-  vector_backend: string
-  knowledge_enabled: boolean
-  crew_enabled: boolean
-  reminders_enabled: boolean
-}
-
-export interface OverviewRead {
-  roles: RoleInfo[]
-  prompts: PromptInfo[]
-  workflow: WorkflowInfo
-  schedule: ScheduleJob[]
-  knowledge: Record<string, unknown>
-  observability: Record<string, unknown>
-  capability: CapabilityInfo
-}
-
-export interface KnowledgeStats {
-  backend: string
-  collection: string
-  embedding: string
-  dimension: number
-  chunks: number
-}
-
-export interface KnowledgeHit extends Reference {}
-
 /** 对话流式事件 */
 export type StreamEvent =
   | { type: 'start'; conversation_id: number }

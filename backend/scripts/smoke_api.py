@@ -175,11 +175,11 @@ async def run(base_url: str) -> int:
         ).json()
         check(len(hits) > 0, f"知识库检索命中 {len(hits)} 条")
 
-        # 11. 系统总览
+        # 11. 系统能力自省接口（供运维排查，不参与前端页面）
         overview = (await client.get("/api/overview")).json()
         check(
             len(overview["roles"]) >= 5 and len(overview["prompts"]) >= 5,
-            f"系统总览可用（{len(overview['roles'])} 个角色 / "
+            f"系统能力接口可用（{len(overview['roles'])} 个角色 / "
             f"{len(overview['prompts'])} 个提示词任务）",
         )
 

@@ -5,9 +5,6 @@ import type {
   ConversationRead,
   ConversationSummary,
   DashboardRead,
-  KnowledgeHit,
-  KnowledgeStats,
-  OverviewRead,
   PlanRead,
   ProfileInput,
   ReminderRead,
@@ -189,27 +186,10 @@ export const api = {
   runReminders: (kind: 'daily' | 'overdue' | 'idle' | 'weekly') =>
     request<Record<string, unknown>>(`/api/reminders/run?kind=${kind}`, { method: 'POST' }),
 
-  // ---- 看板与系统 ----
+  // ---- 看板 ----
   dashboard: (userId: number) => request<DashboardRead>(`/api/dashboard?user_id=${userId}`),
 
-  overview: () => request<OverviewRead>('/api/overview'),
-
   health: () => request<Record<string, unknown>>('/api/health'),
-
-  // ---- 知识库 ----
-  knowledgeStats: () => request<KnowledgeStats>('/api/knowledge/stats'),
-
-  ingestKnowledge: (reset = false) =>
-    request<KnowledgeStats>('/api/knowledge/ingest', {
-      method: 'POST',
-      body: JSON.stringify({ reset, use_builtin: true }),
-    }),
-
-  searchKnowledge: (query: string, topK = 5) =>
-    request<KnowledgeHit[]>('/api/knowledge/search', {
-      method: 'POST',
-      body: JSON.stringify({ query, top_k: topK }),
-    }),
 }
 
 /** 计划中的全部任务（用于看板统计） */
