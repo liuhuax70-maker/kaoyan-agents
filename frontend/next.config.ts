@@ -11,6 +11,12 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   output: 'standalone',
+  async redirects() {
+    return [
+      // 工作台板块已移除，根路径统一落到对话页
+      { source: '/', destination: '/chat', permanent: false },
+    ]
+  },
 }
 
 export default nextConfig

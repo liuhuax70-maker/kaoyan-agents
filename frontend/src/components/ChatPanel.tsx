@@ -28,6 +28,7 @@ export function ChatPanel() {
     turns,
     appendTurn,
     bindConversation,
+    activeConversationId,
     reloadConversations,
     refresh,
     error: workspaceError,
@@ -117,7 +118,8 @@ export function ChatPanel() {
         {
           user_id: userId,
           message,
-          conversation_id: null,
+          // 续接当前会话；仅在尚未绑定会话时（首次发送）才由后端新建
+          conversation_id: activeConversationId,
           enable_review: enableReview,
           enable_retrieval: enableRetrieval,
         },

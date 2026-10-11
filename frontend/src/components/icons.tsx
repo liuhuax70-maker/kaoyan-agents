@@ -21,17 +21,6 @@ function Base({ size = 18, children, ...props }: IconProps) {
   )
 }
 
-export function IconDashboard(props: IconProps) {
-  return (
-    <Base {...props}>
-      <rect x="3" y="3" width="7" height="9" rx="1.6" />
-      <rect x="14" y="3" width="7" height="5" rx="1.6" />
-      <rect x="14" y="12" width="7" height="9" rx="1.6" />
-      <rect x="3" y="16" width="7" height="5" rx="1.6" />
-    </Base>
-  )
-}
-
 export function IconChat(props: IconProps) {
   return (
     <Base {...props}>
@@ -94,14 +83,6 @@ export function IconRefresh(props: IconProps) {
 }
 
 /* ---------- 对话页专用 ---------- */
-
-export function IconPlus(props: IconProps) {
-  return (
-    <Base {...props}>
-      <path d="M12 5v14M5 12h14" />
-    </Base>
-  )
-}
 
 export function IconArrowUp(props: IconProps) {
   return (

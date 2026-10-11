@@ -39,8 +39,6 @@ interface WorkspaceValue {
   activeConversationId: number | null
   /** 加载指定会话的消息并跳转到对话页 */
   openConversation: (conversationId: number) => Promise<void>
-  /** 开始一段新对话 */
-  startNewChat: () => void
   turns: ChatTurn[]
   turnsLoading: boolean
   appendTurn: (turn: ChatTurn) => void
@@ -241,13 +239,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [router],
   )
 
-  const startNewChat = useCallback(() => {
-    setActiveConversationId(null)
-    setTurns([])
-    setError(null)
-    router.push('/chat')
-  }, [router])
-
   const appendTurn = useCallback((turn: ChatTurn) => {
     setTurns((current) => [...current, turn])
   }, [])
@@ -275,7 +266,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       reloadConversations,
       activeConversationId,
       openConversation,
-      startNewChat,
       turns,
       turnsLoading,
       appendTurn,
@@ -298,7 +288,6 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       reloadConversations,
       activeConversationId,
       openConversation,
-      startNewChat,
       turns,
       turnsLoading,
       appendTurn,

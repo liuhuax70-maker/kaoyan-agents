@@ -6,12 +6,11 @@ import type { ReactNode } from 'react'
 
 import { ConnectGate } from './ConnectGate'
 import { useWorkspace } from './WorkspaceProvider'
-import { IconChat, IconDashboard, IconPlan, IconPlus, IconRefresh } from './icons'
+import { IconChat, IconPlan, IconRefresh } from './icons'
 import { Badge, Button, Spinner, cx } from './ui'
 import { groupByRecency } from '@/lib/format'
 
 const NAV = [
-  { href: '/', label: '工作台', Icon: IconDashboard },
   { href: '/chat', label: '多智能体对话', Icon: IconChat },
   { href: '/plan', label: '学习计划', Icon: IconPlan },
 ] as const
@@ -29,7 +28,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     conversations,
     activeConversationId,
     openConversation,
-    startNewChat,
   } = useWorkspace()
 
   if (booting) {
@@ -44,7 +42,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return <main className="mx-auto w-full max-w-6xl px-5 py-10">{<ConnectGate />}</main>
   }
 
-  const isActive = (href: string) => (href === '/' ? pathname === '/' : pathname.startsWith(href))
+  const isActive = (href: string) => pathname.startsWith(href)
   const isChat = pathname.startsWith('/chat')
   const groups = groupByRecency(conversations, (item) => item.created_at)
 
@@ -77,18 +75,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="px-3 pt-4">
-          <button
-            type="button"
-            onClick={startNewChat}
-            className="flex w-full items-center gap-2 rounded-full border border-line-strong bg-surface px-3.5 py-2 text-[13px] font-medium text-ink transition-colors hover:bg-slate-50"
-          >
-            <IconPlus size={15} />
-            开启新对话
-          </button>
-        </div>
-
-        <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <div className="mt-5 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
           {groups.length === 0 ? (
             <p className="px-2.5 py-2 text-[12px] text-ink-muted">还没有对话记录</p>
           ) : (
@@ -150,7 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </span>
             <div className="min-w-0">
               <p className="truncate text-[14px] font-semibold text-ink">
-                {dashboard?.target_title || user?.nickname || '工作台'}
+                {dashboard?.target_title || user?.nickname || '备考督导台'}
               </p>
               <p className="truncate text-[11px] text-ink-muted">
                 {dashboard?.plan_title ? `当前计划：${dashboard.plan_title}` : '尚未生成学习计划'}

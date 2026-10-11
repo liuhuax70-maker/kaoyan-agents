@@ -7,7 +7,7 @@ import { Button, ErrorBanner, Field, Input } from './ui'
 import { API_BASE } from '@/lib/api'
 
 /**
- * 进入工作台前的「登录」入口。
+ * 进入系统前的「登录」入口。
  *
  * 系统未引入账号体系：输入用户名即可进入，
  * 用户名已存在则直接登录，不存在则自动注册一个带默认档案的账号。
@@ -63,7 +63,7 @@ export function ConnectGate() {
         )}
 
         <Button type="submit" loading={busy} className="mt-4 w-full py-2">
-          进入工作台
+          进入系统
         </Button>
 
         <p className="mt-3.5 text-center text-[11px] text-ink-muted">

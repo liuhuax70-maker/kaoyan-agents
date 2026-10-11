@@ -135,7 +135,7 @@ export function ProfilePanel() {
         description: targetForm.description.trim(),
         subjects,
       })
-      setNotice('备考目标已保存，可回到工作台生成学习计划')
+      setNotice('备考目标已保存，可在「学习计划」页生成学习计划')
     } catch {
       // 错误已由上下文写入
     }
