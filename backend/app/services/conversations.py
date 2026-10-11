@@ -17,6 +17,7 @@ from app.db.session import db
 from app.schemas import LearnerSnapshot, PlanSnapshot
 from app.schemas.api import ChatRequest, ChatResponse
 from app.schemas.workflow import WorkflowResult
+from app.services.plan_edit import apply_plan_revision
 from app.services.plans import persist_plan_draft
 from app.services.snapshots import (
     load_latest_plan_snapshot,
@@ -143,6 +144,7 @@ async def persist_result(
 
     plan_id: int | None = None
     if result.plan_draft is not None and context.target_id is not None:
+        # 整份重排优先于局部修订：同一轮里两者同时出现时，以重排结果为准
         plan = await persist_plan_draft(
             session,
             user_id=context.user_id,
@@ -153,6 +155,14 @@ async def persist_result(
         plan_id = plan.id
     elif result.plan_draft is not None:
         logger.warning("用户 %s 尚无备考目标，跳过计划落库", context.user_id)
+    elif result.plan_revision is not None and context.plan is not None:
+        # 聊天 Agent 通过 revise_plan 工具提出的改动在这里落库，
+        # 图谱本身不碰数据库，保持可脱离数据库单测。
+        outcome = await apply_plan_revision(
+            session, plan_id=context.plan.id, revision=result.plan_revision
+        )
+        plan_id = context.plan.id
+        logger.info("计划修订：%s", "；".join(outcome.details) or "无改动")
 
     reply = result.reply_text()
     outputs = [item.model_dump(mode="json") for item in result.outputs]
@@ -172,6 +182,7 @@ async def persist_result(
         meta={
             "intent": result.intent,
             "agents": result.agents,
+            "tool_calls": [item.model_dump(mode="json") for item in result.tool_calls],
             "confidence": result.confidence,
             "plan_id": plan_id,
             "trace_id": result.trace_id,
@@ -184,6 +195,7 @@ async def persist_result(
         message_id=message.id,
         intent=result.intent,
         agents=result.agents,
+        tool_calls=result.tool_calls,
         outputs=result.outputs,
         reply=reply,
         plan_id=plan_id,
@@ -260,6 +272,7 @@ async def stream_chat(request: ChatRequest) -> AsyncIterator[str]:
             "message_id": final.message_id,
             "intent": final.intent,
             "agents": final.agents,
+            "tool_calls": [item.model_dump(mode="json") for item in final.tool_calls],
             "reply": final.reply,
             "plan_id": final.plan_id,
             "errors": final.errors,

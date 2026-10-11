@@ -63,6 +63,7 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
 }
 
 export const INTENT_LABEL: Record<string, string> = {
+  revise: '修改计划',
   plan: '制定计划',
   breakdown: '任务拆解',
   tutor: '答疑讲解',
@@ -73,6 +74,7 @@ export const INTENT_LABEL: Record<string, string> = {
 }
 
 export const AGENT_LABEL: Record<string, string> = {
+  chat_agent: '备考督导助手',
   coordinator: '调度协调者',
   planner: '备考规划师',
   breakdown: '任务拆解师',
@@ -80,6 +82,17 @@ export const AGENT_LABEL: Record<string, string> = {
   reviewer: '复盘诊断师',
   resource: '资料规划师',
   coach: '督学教练',
+  plan_editor: '计划修订师',
+}
+
+export const TOOL_LABEL: Record<string, string> = {
+  generate_plan: '制定学习计划',
+  breakdown_tasks: '拆解任务',
+  explain_concept: '讲解知识点',
+  review_progress: '复盘进度',
+  recommend_resources: '推荐资料',
+  send_nudge: '督促提醒',
+  revise_plan: '修改计划表',
 }
 
 export const REMINDER_TYPE_LABEL: Record<string, string> = {

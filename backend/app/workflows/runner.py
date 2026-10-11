@@ -8,16 +8,18 @@ from pydantic import BaseModel
 from app.core.config import get_settings
 from app.observability import get_observability
 from app.schemas import (
+    ChatSummary,
     DiagnosisReport,
     LearnerSnapshot,
     NudgeMessage,
     PlanDraft,
+    PlanRevision,
     PlanSnapshot,
     ResourcePlan,
     TaskBreakdown,
     TutoringAnswer,
 )
-from app.schemas.workflow import AgentOutput, WorkflowEvent, WorkflowResult
+from app.schemas.workflow import AgentOutput, ToolCallRecord, WorkflowEvent, WorkflowResult
 from app.workflows.graph import get_workflow
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -62,12 +64,17 @@ def build_result(state: dict[str, Any]) -> WorkflowResult:
         confidence=float(state.get("confidence") or 0),
         agents=list(state.get("agents") or []),
         outputs=[AgentOutput.model_validate(item) for item in state.get("outputs") or []],
+        tool_calls=[
+            ToolCallRecord.model_validate(item) for item in state.get("tool_calls") or []
+        ],
+        summary=_parse(state.get("summary"), ChatSummary),
         plan_draft=_parse(state.get("plan_draft"), PlanDraft),
         breakdown=_parse(state.get("breakdown"), TaskBreakdown),
         diagnosis=_parse(state.get("diagnosis"), DiagnosisReport),
         resource=_parse(state.get("resource"), ResourcePlan),
         tutoring=_parse(state.get("tutoring"), TutoringAnswer),
         nudge=_parse(state.get("nudge"), NudgeMessage),
+        plan_revision=_parse(state.get("plan_revision"), PlanRevision),
         errors=list(state.get("errors") or []),
         events=[WorkflowEvent.model_validate(item) for item in state.get("events") or []],
     )

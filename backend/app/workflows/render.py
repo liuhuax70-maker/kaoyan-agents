@@ -1,16 +1,28 @@
 """把结构化智能体结果渲染成摘要与要点，供前端展示。"""
 
 from app.schemas import (
+    ChatSummary,
     DiagnosisReport,
     NudgeMessage,
     PlanDraft,
+    PlanRevision,
+    PlanRevisionOp,
     ResourcePlan,
+    RevisionAction,
     TaskBreakdown,
     TutoringAnswer,
     WeeklyDigest,
 )
 
 RenderResult = tuple[str, str, list[str]]
+
+ACTION_LABELS: dict[RevisionAction, str] = {
+    RevisionAction.ADD_TASK: "新增任务",
+    RevisionAction.UPDATE_TASK: "调整任务",
+    RevisionAction.REMOVE_TASK: "删除任务",
+    RevisionAction.SHIFT_TASKS: "平移进度",
+    RevisionAction.UPDATE_META: "更新计划信息",
+}
 
 
 def render_plan(draft: PlanDraft) -> RenderResult:
@@ -88,3 +100,38 @@ def render_digest(digest: WeeklyDigest) -> RenderResult:
 
     highlights = [*digest.highlights[:3], *digest.problems[:2]]
     return digest.title, digest.closing, highlights
+
+
+def _describe_revision_op(op: PlanRevisionOp) -> str:
+    """把一条修订操作描述成中文短句。"""
+
+    label = ACTION_LABELS.get(op.action, op.action.value)
+    if op.action is RevisionAction.ADD_TASK:
+        return f"{label}：{op.title}（第 {op.day_offset} 天，{op.duration_minutes} 分钟）"
+    if op.action is RevisionAction.UPDATE_TASK:
+        return f"{label}：{op.task_title} → {op.title or '调整日期或时长'}"
+    if op.action is RevisionAction.REMOVE_TASK:
+        return f"{label}：{op.task_title}"
+    if op.action is RevisionAction.SHIFT_TASKS:
+        direction = "后移" if op.shift_days >= 0 else "前移"
+        return f"{label}：未完成任务整体{direction} {abs(op.shift_days)} 天"
+    return f"{label}：{op.plan_title or op.plan_goal or op.plan_strategy}"
+
+
+def render_revision(revision: PlanRevision) -> RenderResult:
+    """渲染计划修订提案。"""
+
+    if revision.ops:
+        highlights = [_describe_revision_op(op) for op in revision.ops[:6]]
+    else:
+        highlights = ["未识别出可执行的修改，计划保持不变"]
+    return "计划修订提案", revision.summary or "已生成修订提案", highlights
+
+
+def render_summary(summary: ChatSummary) -> RenderResult:
+    """渲染聊天 Agent 的统一总结。"""
+
+    highlights = [*summary.key_points[:4]]
+    if summary.next_actions:
+        highlights.append(f"建议下一步：{'；'.join(summary.next_actions[:3])}")
+    return "统一总结", summary.summary, highlights

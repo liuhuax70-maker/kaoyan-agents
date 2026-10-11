@@ -177,11 +177,19 @@ export interface Reference {
   subject: string
 }
 
+/** 聊天 Agent 的一次子智能体工具调用。 */
+export interface ToolCallRecord {
+  name: string
+  agent: string
+  label: string
+}
+
 export interface ChatResponse {
   conversation_id: number
   message_id: number | null
   intent: string
   agents: string[]
+  tool_calls: ToolCallRecord[]
   outputs: AgentOutput[]
   reply: string
   plan_id: number | null
@@ -196,6 +204,7 @@ export interface ChatTurn {
   role: 'user' | 'assistant'
   content: string
   outputs: AgentOutput[]
+  toolCalls?: ToolCallRecord[]
   intent?: string
   agents?: string[]
   planId?: number | null
@@ -264,6 +273,7 @@ export type StreamEvent =
       message_id: number | null
       intent: string
       agents: string[]
+      tool_calls: ToolCallRecord[]
       reply: string
       plan_id: number | null
       errors: string[]

@@ -13,8 +13,10 @@ from app.core.errors import PromptError
 from app.llm.tasks import AgentTask, schema_for
 from app.prompts.catalog import (
     BREAKDOWN_ROLE,
+    CHAT_AGENT_ROLE,
     COACH_ROLE,
     COORDINATOR_ROLE,
+    PLAN_EDITOR_ROLE,
     PLANNER_ROLE,
     RESOURCE_ROLE,
     REVIEWER_ROLE,
@@ -131,6 +133,35 @@ REVIEW_USER_TEMPLATE = """【考生画像】
 {output_contract}
 """
 
+REVISION_USER_TEMPLATE = """【考生画像】
+{learner_context}
+
+【当前计划表】
+{plan_context}
+
+【用户诉求】
+{request}
+
+【执行说明】
+只修订用户明确要求的部分，不要顺手重排整份计划。
+
+【输出结构】
+{output_contract}
+"""
+
+SUMMARY_USER_TEMPLATE = """【考生画像】
+{learner_context}
+
+【用户诉求】
+{request}
+
+【子智能体执行结果】
+{tool_results}
+
+【输出结构】
+{output_contract}
+"""
+
 
 @dataclass(frozen=True, slots=True)
 class PromptSpec:
@@ -203,6 +234,18 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         role=REVIEWER_ROLE,
         template=_make(REVIEWER_ROLE, REVIEW_USER_TEMPLATE),
         required_variables=("learner_context", "plan_context"),
+    ),
+    AgentTask.PLAN_REVISION: PromptSpec(
+        task=AgentTask.PLAN_REVISION,
+        role=PLAN_EDITOR_ROLE,
+        template=_make(PLAN_EDITOR_ROLE, REVISION_USER_TEMPLATE),
+        required_variables=("learner_context", "plan_context", "request"),
+    ),
+    AgentTask.CHAT_SUMMARY: PromptSpec(
+        task=AgentTask.CHAT_SUMMARY,
+        role=CHAT_AGENT_ROLE,
+        template=_make(CHAT_AGENT_ROLE, SUMMARY_USER_TEMPLATE),
+        required_variables=("learner_context", "request", "tool_results"),
     ),
 }
 

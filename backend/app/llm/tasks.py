@@ -9,11 +9,13 @@ from enum import StrEnum
 from pydantic import BaseModel
 
 from app.schemas import (
+    ChatSummary,
     DiagnosisReport,
     IntentDecision,
     NudgeMessage,
     PlanDraft,
     PlanReviewResult,
+    PlanRevision,
     ResourcePlan,
     TaskBreakdown,
     TutoringAnswer,
@@ -33,6 +35,8 @@ class AgentTask(StrEnum):
     NUDGE = "nudge"
     WEEKLY_DIGEST = "weekly_digest"
     PLAN_REVIEW = "plan_review"
+    PLAN_REVISION = "plan_revision"
+    CHAT_SUMMARY = "chat_summary"
 
 
 TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
@@ -45,6 +49,8 @@ TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
     AgentTask.NUDGE: NudgeMessage,
     AgentTask.WEEKLY_DIGEST: WeeklyDigest,
     AgentTask.PLAN_REVIEW: PlanReviewResult,
+    AgentTask.PLAN_REVISION: PlanRevision,
+    AgentTask.CHAT_SUMMARY: ChatSummary,
 }
 
 

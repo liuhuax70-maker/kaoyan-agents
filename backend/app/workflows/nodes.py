@@ -23,12 +23,13 @@ from app.prompts import (
     render_retrieved,
     render_subjects,
 )
-from app.prompts.catalog import WORKER_ROLE_KEYS
 from app.schemas import (
+    ChatSummary,
     DiagnosisReport,
     IntentDecision,
     LearnerSnapshot,
     PlanDraft,
+    PlanRevision,
     PlanSnapshot,
     ReminderSnapshot,
     ResourcePlan,
@@ -41,6 +42,7 @@ from app.workflows.render import (
     render_diagnosis,
     render_nudge,
     render_resource,
+    render_revision,
     render_tutoring,
 )
 from app.workflows.render import (
@@ -105,6 +107,10 @@ def _stub_context(state: WorkflowState) -> dict[str, Any]:
         "recent_minutes": progress.recent_minutes,
         "due_tasks": due_tasks,
         "overdue_tasks": overdue_tasks,
+        "plan_title": plan.title if plan else "",
+        "plan_tasks": [task.title for task in plan.tasks] if plan else [],
+        # 由聊天 Agent 在调完工具后回填，供总结环节使用
+        "tool_results": str(state.get("tool_results", "")),
     }
 
 
@@ -159,51 +165,6 @@ async def prepare_context(state: WorkflowState) -> dict[str, Any]:
         "plan": plan.model_dump(mode="json") if plan else None,
         "events": [_event("prepare_context", detail)],
     }
-
-
-async def route_intent(state: WorkflowState) -> dict[str, Any]:
-    """调度协调者：判定意图并决定参与的智能体。"""
-
-    snapshot = _snapshot(state)
-    messages = build_messages(
-        AgentTask.INTENT_ROUTING,
-        learner_context=render_learner(snapshot),
-        request=state.get("request", ""),
-    )
-    decision = await _call(AgentTask.INTENT_ROUTING, messages, IntentDecision, state)
-
-    agents = decision.normalized_agents(set(WORKER_ROLE_KEYS)) or list(DEFAULT_AGENTS)
-    agents = agents[:MAX_AGENTS]
-
-    return {
-        "intent": decision.intent,
-        "agents": agents,
-        "confidence": decision.confidence,
-        "reason": decision.reason,
-        "events": [
-            _event(
-                "route_intent",
-                f"意图 {decision.intent}（{decision.confidence:.0%}）→ {'、'.join(agents)}",
-            )
-        ],
-    }
-
-
-async def run_agent(state: WorkflowState) -> dict[str, Any]:
-    """按 agent_key 执行对应的专业智能体。"""
-
-    key = str(state.get("agent_key", ""))
-    handler = AGENT_HANDLERS.get(key)
-    if handler is None:
-        return {"errors": [f"未知智能体：{key}"]}
-    try:
-        return await handler(state)
-    except Exception as exc:  # noqa: BLE001 - 单个智能体失败不应中断整体协作
-        logger.exception("智能体 %s 执行失败", key)
-        return {
-            "errors": [f"{key} 执行失败：{exc}"],
-            "events": [{"node": key, "agent": key, "status": "failed", "detail": str(exc)}],
-        }
 
 
 async def finalize(state: WorkflowState) -> dict[str, Any]:
@@ -387,6 +348,37 @@ async def _run_coach(state: WorkflowState) -> dict[str, Any]:
     }
 
 
+async def _run_plan_editor(state: WorkflowState) -> dict[str, Any]:
+    """计划修订师：把修改诉求转成结构化的计划修订提案。
+
+    这里只产出提案，不直接写库——图谱保持无副作用，
+    落库统一由服务层在对话结束后执行。
+    """
+
+    snapshot = _snapshot(state)
+    plan = _plan_snapshot(state)
+    request = state.get("request", "") or "请根据我的要求调整计划"
+
+    messages = build_messages(
+        AgentTask.PLAN_REVISION,
+        learner_context=render_learner(snapshot),
+        plan_context=render_plan(plan),
+        request=request,
+    )
+    revision: PlanRevision = await _call(  # type: ignore[assignment]
+        AgentTask.PLAN_REVISION, messages, PlanRevision, state
+    )
+    title, summary, highlights = render_revision(revision)
+    payload = revision.model_dump(mode="json")
+    return {
+        "plan_revision": payload,
+        "outputs": [_output("plan_editor", title, summary, highlights, payload)],
+        "events": [
+            _event("plan_editor", f"提出 {len(revision.ops)} 项修改", "plan_editor")
+        ],
+    }
+
+
 AGENT_HANDLERS = {
     "planner": _run_planner,
     "breakdown": _run_breakdown,
@@ -394,7 +386,48 @@ AGENT_HANDLERS = {
     "reviewer": _run_reviewer,
     "resource": _run_resource,
     "coach": _run_coach,
+    "plan_editor": _run_plan_editor,
 }
+
+
+def learner_of(state: WorkflowState) -> LearnerSnapshot:
+    """从状态还原考生画像（供聊天 Agent 复用）。"""
+
+    return _snapshot(state)
+
+
+def plan_of(state: WorkflowState) -> PlanSnapshot | None:
+    """从状态还原计划快照（供聊天 Agent 复用）。"""
+
+    return _plan_snapshot(state)
+
+
+async def decide_intent(state: WorkflowState) -> IntentDecision:
+    """调用调度协调者判定意图。
+
+    离线路径用它挑选工具；真实模型路径下由模型直接决定调用哪些工具，
+    这里的判定结果仅用于回填 ``intent`` 字段。
+    """
+
+    messages = build_messages(
+        AgentTask.INTENT_ROUTING,
+        learner_context=render_learner(_snapshot(state)),
+        request=state.get("request", ""),
+    )
+    return await _call(AgentTask.INTENT_ROUTING, messages, IntentDecision, state)
+
+
+async def compose_summary(state: WorkflowState, tool_results: str) -> ChatSummary:
+    """把子智能体产出整合成一份统一总结。"""
+
+    local: WorkflowState = {**state, "tool_results": tool_results}
+    messages = build_messages(
+        AgentTask.CHAT_SUMMARY,
+        learner_context=render_learner(_snapshot(state)),
+        request=state.get("request", "") or "（用户没有提供具体诉求）",
+        tool_results=tool_results or "（本轮未调用任何工具）",
+    )
+    return await _call(AgentTask.CHAT_SUMMARY, messages, ChatSummary, local)
 
 
 def active_provider() -> str:

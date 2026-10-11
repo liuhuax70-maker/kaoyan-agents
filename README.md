@@ -11,8 +11,38 @@
 | 进度跟踪 | 任务打卡、完成度统计、阶段体检 | 进度跟踪 |
 | 提醒督促 | 定时巡检、逾期催办、每日日报与周报复盘 | 提醒督促 |
 | 提示词体系 | 各智能体独立 system prompt + 结构化输出约束 | **智能体提示词设计** |
-| 工作流编排 | LangGraph 状态机驱动多阶段编排 | **任务工作流编排** |
+| 工作流编排 | 聊天 Agent 以 Subagents 模式调度 7 个子智能体工具并统一总结 | **任务工作流编排** |
 | 学习数据管理 | 用户、目标、科目、计划、任务、进度、提醒的完整建模 | **用户学习数据管理** |
+
+## 多智能体架构（Subagents 模式）
+
+用户只与**聊天 Agent** 对话。各板块的能力以「工具」形式暴露，调用哪些、按什么顺序、各调用几次，全部由聊天 Agent 决定，最后统一总结成一份回答。
+
+```
+用户消息
+  └─ 聊天 Agent（唯一对话入口）
+       ├─ generate_plan        → 备考规划师
+       ├─ breakdown_tasks      → 任务拆解师
+       ├─ explain_concept      → 答疑讲师（含知识库检索）
+       ├─ review_progress      → 复盘诊断师
+       ├─ recommend_resources  → 资料规划师
+       ├─ send_nudge           → 督学教练
+       └─ revise_plan          → 计划修订师
+  └─ 统一总结（ChatSummary）
+```
+
+- **工具注册表**：`backend/app/agents/tools.py` 是唯一事实来源，新增子智能体只需登记一条。
+- **两条执行路径**：配置了密钥走原生 tool calling（`bind_tools` + `ToolMessage` 回灌）；未配置密钥走关键词规则挑选工具，两条路径产出的状态结构完全一致，下游无需区分。
+- **图谱保持无副作用**：子智能体只产出结构化结果，落库由服务层在图执行完成后统一处理，因此工作流可以脱离数据库单测。
+
+### 计划表的两条修改路径
+
+| 入口 | 链路 | 示例 |
+| --- | --- | --- |
+| 对话 | 聊天 Agent → `revise_plan` 工具 → 计划修订师产出修订提案 → 服务层落库 | 「把没做完的任务往后挪三天」 |
+| 直接编辑 | `/plan` 页任务看板 | 改标题、改日期与时长、增删任务、改计划目标 |
+
+两条路径共用 `backend/app/services/plan_edit.py` 的同一套底层函数，行为一致。
 
 ## 技术栈
 
@@ -39,7 +69,8 @@ kaoyan-agents/
 │   │   ├── schemas/            # 智能体输入快照与结构化输出
 │   │   ├── prompts/            # 智能体提示词与角色定义
 │   │   ├── llm/                # 模型工厂、结构化解析、离线兜底
-│   │   ├── workflows/          # LangGraph 工作流编排
+│   │   ├── agents/             # 子智能体工具注册表
+│   │   ├── workflows/          # LangGraph 编排（聊天 Agent + 工具循环）
 │   │   ├── crews/              # CrewAI 多角色协作
 │   │   ├── knowledge/          # 向量库与 RAG 检索
 │   │   ├── tasks/              # Celery 定时任务
@@ -199,7 +230,10 @@ npm config set registry https://registry.npmmirror.com
 | GET | `/api/plans/{id}` | 计划详情 |
 | GET | `/api/tasks?user_id=&status=` | 任务列表 |
 | PATCH | `/api/tasks/{id}` | 任务打卡与调整 |
+| DELETE | `/api/tasks/{id}` | 删除任务 |
 | GET | `/api/tasks/{id}/progress` | 打卡历史 |
+| PATCH | `/api/plans/{id}` | 修改计划标题 / 目标 / 策略 |
+| POST | `/api/plans/{id}/tasks` | 新增任务（用户直接编辑计划表） |
 | POST | `/api/chat` | 多智能体对话 |
 | POST | `/api/chat/stream` | 多智能体对话（SSE 流式） |
 | GET | `/api/chat/conversations?user_id=` | 会话列表与详情 |

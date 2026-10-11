@@ -292,9 +292,16 @@ async def test_overview_exposes_roles_and_workflow(client: AsyncClient) -> None:
     assert response.status_code == 200
 
     body = response.json()
-    assert len(body["roles"]) == 7
+    role_keys = {item["key"] for item in body["roles"]}
+    assert {"chat_agent", "planner", "plan_editor"} <= role_keys
     assert {item["role_name"] for item in body["prompts"]} >= {"备考规划师", "复盘诊断师"}
-    assert body["workflow"]["entry"] == "prepare_context"
+
+    workflow = body["workflow"]
+    assert workflow["entry"] == "prepare_context"
+    assert workflow["pattern"] == "subagents"
+    assert "chat_agent" in workflow["nodes"]
+    assert {item["name"] for item in workflow["tools"]} >= {"generate_plan", "revise_plan"}
+
     assert len(body["schedule"]) == 4
     assert body["capability"]["llm_provider"] == "stub"
 
@@ -320,3 +327,86 @@ async def test_knowledge_endpoints(client: AsyncClient) -> None:
 async def test_system_endpoints_are_reachable(client: AsyncClient, path: str) -> None:
     response = await client.get(path)
     assert response.status_code == 200
+
+
+async def test_plan_task_crud_via_api(client: AsyncClient) -> None:
+    """用户可以在计划表里直接增删改任务，与聊天改计划走同一套底层逻辑。"""
+
+    user_id = await _create_user(client, username="manual_editor")
+    await _create_target(client, user_id)
+
+    generated = await client.post("/api/plans/generate", json={"user_id": user_id})
+    assert generated.status_code == 200
+    plan_id = generated.json()["plan_id"]
+    assert plan_id
+
+    created = await client.post(
+        f"/api/plans/{plan_id}/tasks",
+        json={
+            "title": "手动补充：英语长难句 10 句",
+            "description": "逐句拆结构并翻译",
+            "subject": "英语",
+            "duration_minutes": 45,
+            "priority": "high",
+        },
+    )
+    assert created.status_code == 201
+    task_id = created.json()["id"]
+    assert created.json()["status"] == "todo"
+
+    updated = await client.patch(
+        f"/api/tasks/{task_id}",
+        json={"title": "手动补充：英语长难句 20 句", "duration_minutes": 60},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["title"] == "手动补充：英语长难句 20 句"
+    assert updated.json()["duration_minutes"] == 60
+
+    renamed = await client.patch(
+        f"/api/plans/{plan_id}", json={"title": "冲刺计划（已人工调整）"}
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "冲刺计划（已人工调整）"
+
+    deleted = await client.delete(f"/api/tasks/{task_id}")
+    assert deleted.status_code == 204
+    assert (await client.get(f"/api/tasks/{task_id}")).status_code == 404
+
+
+async def test_chat_revision_is_persisted(client: AsyncClient) -> None:
+    """聊天里让计划修订师改计划，改动必须真正落库。"""
+
+    user_id = await _create_user(client, username="revise_user")
+    await _create_target(client, user_id)
+
+    plan_id = (
+        await client.post("/api/plans/generate", json={"user_id": user_id})
+    ).json()["plan_id"]
+
+    before = (await client.get(f"/api/plans/{plan_id}")).json()
+    before_dates = {
+        task["title"]: task["planned_date"]
+        for stage in before["stages"]
+        for task in stage["tasks"]
+    }
+    assert before_dates
+
+    reply = await client.post(
+        "/api/chat",
+        json={"user_id": user_id, "message": "把没做完的任务往后挪三天"},
+    )
+    assert reply.status_code == 200
+    payload = reply.json()
+
+    assert payload["plan_id"] == plan_id
+    assert "revise_plan" in {item["name"] for item in payload["tool_calls"]}
+    assert payload["reply"].strip()
+
+    after = (await client.get(f"/api/plans/{plan_id}")).json()
+    after_dates = {
+        task["title"]: task["planned_date"]
+        for stage in after["stages"]
+        for task in stage["tasks"]
+    }
+    moved = [title for title, value in after_dates.items() if before_dates.get(title) != value]
+    assert moved, "计划修订没有真正落库"

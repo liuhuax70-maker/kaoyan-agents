@@ -6,19 +6,22 @@ import { AgentAnswer } from './AgentAnswer'
 import { useWorkspace } from './WorkspaceProvider'
 import { IconArrowUp, IconBulb, IconCopy, IconGlobe, IconStop } from './icons'
 import { Badge, IconButton, Spinner, TogglePill, cx } from './ui'
-import { AGENT_LABEL, INTENT_LABEL } from '@/lib/format'
+import { INTENT_LABEL, TOOL_LABEL } from '@/lib/format'
 import { streamChat } from '@/lib/sse'
-import type { AgentOutput, ChatTurn, StreamEvent } from '@/lib/types'
+import type { AgentOutput, ChatTurn, StreamEvent, ToolCallRecord } from '@/lib/types'
 
 const PRESETS = [
   '帮我制定从现在到考试的复习计划',
+  '把没做完的任务往后挪三天',
   '复盘一下我现在的复习进度和风险',
   '数学的极限为什么总是算不对',
-  '各科目该用什么资料，真题怎么刷',
 ]
+
+const SUMMARY_AGENT = 'chat_agent'
 
 interface LiveState {
   steps: Array<{ node: string; detail: string }>
+  tools: ToolCallRecord[]
   outputs: AgentOutput[]
 }
 
@@ -71,13 +74,14 @@ export function ChatPanel() {
     setInput('')
     setSending(true)
     appendTurn({ role: 'user', content: message, outputs: [] })
-    setLive({ steps: [], outputs: [] })
+    setLive({ steps: [], tools: [], outputs: [] })
     requestAnimationFrame(resizeTextarea)
 
     const controller = new AbortController()
     abortRef.current = controller
 
     let outputs: AgentOutput[] = []
+    let toolCalls: ToolCallRecord[] = []
     let reply = ''
     let intent = ''
     let agents: string[] = []
@@ -90,11 +94,17 @@ export function ChatPanel() {
           bindConversation(event.conversation_id)
           break
         case 'progress':
-          setLive((current) =>
-            current
-              ? { ...current, steps: [...current.steps, { node: event.node, detail: event.detail }] }
-              : current,
-          )
+          setLive((current) => {
+            if (!current) {
+              return current
+            }
+            const steps = [...current.steps, { node: event.node, detail: event.detail }]
+            // 工具调用事件以工具名作为 node，据此实时拼出调用链
+            const tools = TOOL_LABEL[event.node]
+              ? [...current.tools, { name: event.node, agent: event.agent ?? '', label: '' }]
+              : current.tools
+            return { ...current, steps, tools }
+          })
           break
         case 'output':
           outputs = [...outputs, event.output]
@@ -104,6 +114,7 @@ export function ChatPanel() {
           reply = event.reply
           intent = event.intent
           agents = event.agents
+          toolCalls = event.tool_calls ?? []
           planId = event.plan_id
           traceUrl = event.trace_url
           break
@@ -132,6 +143,7 @@ export function ChatPanel() {
           role: 'assistant',
           content: reply,
           outputs,
+          toolCalls,
           intent,
           agents,
           planId,
@@ -161,8 +173,10 @@ export function ChatPanel() {
 
   const copyTurn = async (turn: ChatTurn, index: number) => {
     const text = [
-      ...turn.outputs.map((output) => `${output.title}\n${output.summary}\n${output.highlights.join('\n')}`),
       turn.content,
+      ...turn.outputs.map(
+        (output) => `${output.title}\n${output.summary}\n${output.highlights.join('\n')}`,
+      ),
     ]
       .filter(Boolean)
       .join('\n\n')
@@ -193,9 +207,9 @@ export function ChatPanel() {
                 <h1 className="text-[26px] font-semibold tracking-tight text-ink">
                   嗨，我是你的备考督导台
                 </h1>
-                <p className="mx-auto mt-2.5 max-w-md text-[13.5px] leading-relaxed text-ink-muted">
-                  规划、拆解、答疑、复盘、资料、督促都由多个智能体协作完成，
-                  把你的备考目标交给我吧~
+                <p className="mx-auto mt-2.5 max-w-lg text-[13.5px] leading-relaxed text-ink-muted">
+                  我是你唯一的对话入口。需要规划、拆解、答疑、复盘、资料或督促时，
+                  我会调用对应的专业子智能体，再把结果整理成一份完整答复给你。
                 </p>
               </div>
               <div className="flex flex-wrap justify-center gap-2">
@@ -304,7 +318,7 @@ export function ChatPanel() {
           </div>
 
           <p className="mt-2.5 text-center text-[11px] text-ink-muted">
-            内容由多智能体协作生成，请结合自身情况甄别
+            答由聊天 Agent 汇总子智能体结果生成，请结合自身情况甄别
           </p>
         </div>
       </div>
@@ -312,6 +326,7 @@ export function ChatPanel() {
   )
 }
 
+/** 助手回答：先给统一总结，再按需展开子智能体的详细产出。 */
 function AssistantTurn({
   turn,
   copied,
@@ -321,24 +336,38 @@ function AssistantTurn({
   copied: boolean
   onCopy: () => void
 }) {
+  const details = turn.outputs.filter((output) => output.agent !== SUMMARY_AGENT)
+
   return (
     <div className="flex gap-3.5">
       <AssistantAvatar />
-      <div className="min-w-0 flex-1 space-y-4">
-        {turn.outputs.map((output, index) => (
-          <AgentAnswer key={index} output={output} />
-        ))}
-
-        {!turn.outputs.length && turn.content && (
-          <p className="whitespace-pre-wrap text-[14px] leading-[1.75] text-ink-soft">
+      <div className="min-w-0 flex-1 space-y-3">
+        {turn.content && (
+          <div className="answer-body whitespace-pre-wrap text-[14px] leading-[1.75] text-ink">
             {turn.content}
-          </p>
+          </div>
+        )}
+
+        <ToolChain calls={turn.toolCalls ?? []} />
+
+        {details.length > 0 && (
+          <details className="group surface">
+            <summary className="cursor-pointer list-none px-3.5 py-2.5 text-[12.5px] text-ink-soft hover:text-ink">
+              查看 {details.length} 个子智能体的详细产出
+              <span className="ml-1 text-ink-muted group-open:hidden">展开</span>
+            </summary>
+            <div className="space-y-4 border-t border-line px-3.5 py-3.5">
+              {details.map((output, index) => (
+                <AgentAnswer key={index} output={output} />
+              ))}
+            </div>
+          </details>
         )}
 
         {turn.planId && (
           <div className="flex items-center gap-2 text-[12px] text-emerald-700">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            学习计划已入库（计划 #{turn.planId}），已同步到「学习计划」页
+            学习计划已更新（计划 #{turn.planId}），已同步到「学习计划」页
           </div>
         )}
 
@@ -354,11 +383,6 @@ function AssistantTurn({
           </button>
 
           {turn.intent && <Badge tone="indigo">{INTENT_LABEL[turn.intent] ?? turn.intent}</Badge>}
-          {(turn.agents ?? []).map((agent) => (
-            <Badge key={agent} tone="sky">
-              {AGENT_LABEL[agent] ?? agent}
-            </Badge>
-          ))}
 
           {turn.traceUrl && (
             <a
@@ -376,21 +400,52 @@ function AssistantTurn({
   )
 }
 
+/** 调用链：展示聊天 Agent 本次调起了哪些子智能体。 */
+function ToolChain({ calls }: { calls: ToolCallRecord[] }) {
+  if (calls.length === 0) {
+    return null
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="text-[11.5px] text-ink-muted">调用</span>
+      {calls.map((call, index) => (
+        <span
+          key={`${call.name}-${index}`}
+          className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-0.5 text-[11.5px]"
+        >
+          <span className="font-medium text-ink">{TOOL_LABEL[call.name] ?? call.name}</span>
+          {call.label && <span className="text-ink-muted">· {call.label}</span>}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function LiveTurn({ live }: { live: LiveState }) {
   const lastStep = live.steps[live.steps.length - 1]
+  const details = live.outputs.filter((output) => output.agent !== SUMMARY_AGENT)
+  const summary = live.outputs.find((output) => output.agent === SUMMARY_AGENT)
+
   return (
     <div className="flex gap-3.5">
       <AssistantAvatar />
-      <div className="min-w-0 flex-1 space-y-4">
+      <div className="min-w-0 flex-1 space-y-3">
         <div className="flex items-center gap-2 text-[13px] text-ink-muted">
           <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
-          <span className="text-ink-soft">多智能体协作中…</span>
+          <span className="text-ink-soft">
+            {live.tools.length > 0 ? '子智能体执行中…' : '正在理解你的诉求…'}
+          </span>
           {lastStep && <span className="truncate">· {lastStep.detail}</span>}
         </div>
 
-        {live.outputs.map((output, index) => (
+        <ToolChain calls={live.tools} />
+
+        {details.map((output, index) => (
           <AgentAnswer key={index} output={output} />
         ))}
+
+        {summary && <AgentAnswer output={summary} />}
 
         {live.outputs.length === 0 && live.steps.length === 0 && (
           <Spinner label="正在准备上下文" />

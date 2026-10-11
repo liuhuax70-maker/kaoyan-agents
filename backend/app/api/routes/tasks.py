@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.api.deps import SessionDep
 from app.db.models import StudyTask, TaskProgress, TaskStatus
 from app.schemas.api import TaskProgressRead, TaskRead, TaskUpdate
+from app.services.plan_edit import delete_task
 from app.services.progress import record_check_in
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -78,6 +79,16 @@ async def update_task(task_id: int, payload: TaskUpdate, session: SessionDep) ->
     if updated is None:  # pragma: no cover
         raise HTTPException(status_code=500, detail="任务更新失败")
     return updated
+
+
+@router.delete("/{task_id}", status_code=204, summary="删除任务")
+async def remove_task(task_id: int, session: SessionDep) -> None:
+    """删除任务；打卡记录随任务一并移除。"""
+
+    task = await session.get(StudyTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    await delete_task(session, task)
 
 
 @router.get(

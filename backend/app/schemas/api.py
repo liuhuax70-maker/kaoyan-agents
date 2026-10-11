@@ -17,7 +17,7 @@ from app.db.models.enums import (
     TaskType,
 )
 from app.schemas.review import PlanReviewResult
-from app.schemas.workflow import AgentOutput
+from app.schemas.workflow import AgentOutput, ToolCallRecord
 
 
 class ProfileInput(BaseModel):
@@ -182,6 +182,8 @@ class PlanRead(BaseModel):
 class TaskUpdate(BaseModel):
     """任务打卡与调整。"""
 
+    title: str | None = Field(default=None, min_length=2, max_length=120)
+    description: str | None = Field(default=None, max_length=500)
     status: TaskStatus | None = None
     planned_date: date | None = None
     duration_minutes: int | None = Field(default=None, ge=5, le=480)
@@ -189,6 +191,27 @@ class TaskUpdate(BaseModel):
     note: str = Field(default="", max_length=1000)
     actual_minutes: int | None = Field(default=None, ge=0, le=1440)
     score: float | None = Field(default=None, ge=0, le=200)
+
+
+class TaskCreate(BaseModel):
+    """用户在学习计划里直接新增任务。"""
+
+    title: str = Field(min_length=2, max_length=120)
+    description: str = Field(default="", max_length=500)
+    stage_name: str = Field(default="", max_length=40, description="所属阶段名称，可留空")
+    subject: str = Field(default="", max_length=32, description="所属科目名称，可留空")
+    planned_date: date | None = Field(default=None, description="留空则落在计划开始日")
+    duration_minutes: int = Field(default=60, ge=5, le=480)
+    priority: Priority = Priority.MEDIUM
+    task_type: TaskType = TaskType.LEARN
+
+
+class PlanUpdate(BaseModel):
+    """计划信息调整。"""
+
+    title: str | None = Field(default=None, min_length=2, max_length=80)
+    goal: str | None = Field(default=None, max_length=300)
+    strategy: str | None = Field(default=None, max_length=600)
 
 
 class TaskProgressRead(BaseModel):
@@ -251,6 +274,9 @@ class ChatResponse(BaseModel):
     message_id: int | None = None
     intent: str = "chat"
     agents: list[str] = Field(default_factory=list)
+    tool_calls: list[ToolCallRecord] = Field(
+        default_factory=list, description="聊天 Agent 调起的子智能体工具"
+    )
     outputs: list[AgentOutput] = Field(default_factory=list)
     reply: str = ""
     plan_id: int | None = None

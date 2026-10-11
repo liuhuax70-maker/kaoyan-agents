@@ -4,9 +4,18 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.api.deps import SessionDep
-from app.db.models import StudyPlan
-from app.schemas.api import ChatRequest, ChatResponse, PlanGenerateRequest, PlanRead
+from app.db.models import StudyPlan, StudyTask
+from app.schemas.api import (
+    ChatRequest,
+    ChatResponse,
+    PlanGenerateRequest,
+    PlanRead,
+    PlanUpdate,
+    TaskCreate,
+    TaskRead,
+)
 from app.services.conversations import handle_chat
+from app.services.plan_edit import create_task, load_plan, update_plan_fields
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -55,3 +64,49 @@ async def get_plan(plan_id: int, session: SessionDep) -> StudyPlan:
     if plan is None:
         raise HTTPException(status_code=404, detail="学习计划不存在")
     return plan
+
+
+@router.patch("/{plan_id}", response_model=PlanRead, summary="修改计划信息")
+async def revise_plan(plan_id: int, payload: PlanUpdate, session: SessionDep) -> StudyPlan:
+    """修改计划标题、目标或策略。"""
+
+    plan = await load_plan(session, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="学习计划不存在")
+    return await update_plan_fields(
+        session,
+        plan=plan,
+        title=payload.title,
+        goal=payload.goal,
+        strategy=payload.strategy,
+    )
+
+
+@router.post(
+    "/{plan_id}/tasks",
+    response_model=TaskRead,
+    status_code=201,
+    summary="新增学习任务",
+)
+async def add_task(plan_id: int, payload: TaskCreate, session: SessionDep) -> StudyTask:
+    """用户直接在学习计划里新增任务。
+
+    与聊天里让计划修订师改计划走的是同一套底层逻辑，两条路径结果一致。
+    """
+
+    plan = await load_plan(session, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="学习计划不存在")
+
+    return await create_task(
+        session,
+        plan=plan,
+        title=payload.title,
+        description=payload.description,
+        stage_name=payload.stage_name,
+        subject=payload.subject,
+        planned_date=payload.planned_date,
+        duration_minutes=payload.duration_minutes,
+        priority=payload.priority,
+        task_type=payload.task_type,
+    )

@@ -84,6 +84,14 @@ export function IconRefresh(props: IconProps) {
 
 /* ---------- 对话页专用 ---------- */
 
+export function IconPlus(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M12 5v14M5 12h14" />
+    </Base>
+  )
+}
+
 export function IconArrowUp(props: IconProps) {
   return (
     <Base {...props} strokeWidth={2}>

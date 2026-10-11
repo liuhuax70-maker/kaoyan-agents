@@ -5,6 +5,7 @@
 生成结果同样会经过 Pydantic 校验，与真实模型输出走同一条路径。
 """
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -12,7 +13,23 @@ PayloadBuilder = Callable[[dict[str, Any]], dict[str, Any]]
 
 DEFAULT_SUBJECTS = ("政治", "英语", "数学", "专业课")
 
+# 计划修订关键词。这类词要优先于「计划」判定，
+# 否则「把任务往后挪三天」会被当成重新制定计划。
+SHIFT_KEYWORDS = ("推迟", "延后", "顺延", "往后挪", "往后推", "挪后", "延一延")
+ADD_KEYWORDS = ("增加", "添加", "加一个", "加个", "补充", "再来一个", "新增")
+REMOVE_KEYWORDS = ("删除", "去掉", "取消", "移除", "不做了")
+META_KEYWORDS = ("改标题", "改目标", "改策略", "计划名")
+
 INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "revise": (
+        "修改计划",
+        "调整计划",
+        "改计划",
+        "调整安排",
+        *SHIFT_KEYWORDS,
+        *ADD_KEYWORDS,
+        *REMOVE_KEYWORDS,
+    ),
     "plan": ("计划", "规划", "安排", "时间表", "怎么复习", "如何复习", "备考", "冲刺", "从哪开始"),
     "breakdown": ("拆解", "拆分", "细化", "每天做什么", "每日任务", "任务分配"),
     "tutor": ("为什么", "怎么理解", "讲解", "不懂", "不会", "这道题", "公式", "原理", "推导"),
@@ -22,6 +39,7 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 INTENT_AGENTS: dict[str, list[str]] = {
+    "revise": ["plan_editor"],
     "plan": ["planner", "breakdown"],
     "breakdown": ["breakdown"],
     "tutor": ["tutor"],
@@ -602,6 +620,118 @@ def build_plan_review(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+DAY_PATTERN = re.compile(r"(\d+)\s*天")
+
+
+def _mentioned_subject(request: str, subjects: list[str]) -> str:
+    """返回请求中点名的科目，未点名时退回第一个科目。"""
+
+    for name in subjects:
+        if name and name in request:
+            return name
+    return subjects[0] if subjects else ""
+
+
+def _first_pending_task(context: dict[str, Any]) -> str:
+    """返回一个可被引用的待办任务标题。"""
+
+    for key in ("overdue_tasks", "due_tasks", "plan_tasks"):
+        items = context.get(key) or []
+        for item in items:
+            text = str(item).strip()
+            if text:
+                return text
+    return ""
+
+
+def build_plan_revision(context: dict[str, Any]) -> dict[str, Any]:
+    """按关键词把修订诉求翻译成计划修订指令，作为计划修订师的离线实现。
+
+    离线模式无法理解自由表述，因此只在能明确识别意图时才产出操作；
+    识别不了就返回空操作，由总结环节如实说明，而不是臆造改动。
+    """
+
+    request = str(context.get("request", ""))
+    subjects = _subjects(context)
+
+    # 没有现存计划时不做任何修订，避免凭空造出改动
+    if not context.get("plan_tasks"):
+        return {
+            "summary": "当前还没有学习计划，无法执行修订，请先生成计划",
+            "ops": [],
+        }
+
+    if any(word in request for word in SHIFT_KEYWORDS):
+        matched = DAY_PATTERN.search(request)
+        days = int(matched.group(1)) if matched else 3
+        return {
+            "summary": f"把未完成任务的日期整体后移 {days} 天",
+            "ops": [{"action": "shift_tasks", "shift_days": days}],
+        }
+
+    if any(word in request for word in REMOVE_KEYWORDS):
+        target = _first_pending_task(context)
+        if target:
+            return {
+                "summary": f"删除任务「{target}」",
+                "ops": [{"action": "remove_task", "task_title": target}],
+            }
+        return {"summary": "没有找到可以删除的待办任务", "ops": []}
+
+    if any(word in request for word in ADD_KEYWORDS):
+        subject = _mentioned_subject(request, subjects)
+        return {
+            "summary": f"为「{subject}」补充一个每日任务",
+            "ops": [
+                {
+                    "action": "add_task",
+                    "title": f"{subject}每日巩固练习并整理错题",
+                    "description": "完成 20 道对应章节练习，整理错题并标注卡住的那一步",
+                    "subject": subject,
+                    "day_offset": 0,
+                    "duration_minutes": 60,
+                    "priority": "high" if subject in _weak_subjects(context) else "medium",
+                }
+            ],
+        }
+
+    if any(word in request for word in META_KEYWORDS):
+        return {
+            "summary": "更新计划的目标与策略描述",
+            "ops": [
+                {
+                    "action": "update_meta",
+                    "plan_goal": f"围绕{'、'.join(subjects)}完成一轮系统复习并稳定得分",
+                    "plan_strategy": "按阶段推进，每阶段结束用真题得分率检验成果。",
+                }
+            ],
+        }
+
+    return {
+        "summary": "离线模式下无法解析这条修改要求，未对计划做任何改动",
+        "ops": [],
+    }
+
+
+def build_chat_summary(context: dict[str, Any]) -> dict[str, Any]:
+    """把子智能体产出整合成统一总结，作为聊天 Agent 的离线实现。"""
+
+    raw = str(context.get("tool_results") or "")
+    lines = [line.strip(" -·") for line in raw.splitlines() if line.strip()]
+    if not lines:
+        return {
+            "summary": "这次没有需要调用的专业能力，无法给出针对性建议。",
+            "key_points": [],
+            "next_actions": ["补充目标院校与考试日期", "说明每天可投入的学习时长"],
+        }
+
+    return {
+        "summary": lines[0],
+        "key_points": lines[1:5],
+        "next_actions": lines[-2:] if len(lines) > 2 else [],
+    }
+
+
 OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
     "intent_routing": build_intent,
     "plan_draft": build_plan_draft,
@@ -612,6 +742,8 @@ OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
     "nudge": build_nudge,
     "weekly_digest": build_weekly_digest,
     "plan_review": build_plan_review,
+    "plan_revision": build_plan_revision,
+    "chat_summary": build_chat_summary,
 }
 
 

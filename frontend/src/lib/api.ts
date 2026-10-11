@@ -6,6 +6,7 @@ import type {
   ConversationSummary,
   DashboardRead,
   PlanRead,
+  Priority,
   ProfileInput,
   ReminderRead,
   StageRead,
@@ -13,6 +14,8 @@ import type {
   TaskProgressRead,
   TaskRead,
   TaskStatus,
+  TaskType,
+  ToolCallRecord,
   UserRead,
 } from './types'
 
@@ -105,12 +108,26 @@ export interface CreateTargetPayload {
 }
 
 export interface UpdateTaskPayload {
+  title?: string
+  description?: string
   status?: TaskStatus
   planned_date?: string
   duration_minutes?: number
+  priority?: Priority
   actual_minutes?: number
   score?: number
   note?: string
+}
+
+export interface CreateTaskPayload {
+  title: string
+  description?: string
+  stage_name?: string
+  subject?: string
+  planned_date?: string
+  duration_minutes?: number
+  priority?: Priority
+  task_type?: TaskType
 }
 
 export const api = {
@@ -161,6 +178,22 @@ export const api = {
   listTaskProgress: (taskId: number) =>
     request<TaskProgressRead[]>(`/api/tasks/${taskId}/progress`),
 
+  /** 用户直接在学习计划里新增任务 */
+  createTask: (planId: number, payload: CreateTaskPayload) =>
+    request<TaskRead>(`/api/plans/${planId}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteTask: (taskId: number) =>
+    request<void>(`/api/tasks/${taskId}`, { method: 'DELETE' }),
+
+  updatePlan: (planId: number, payload: { title?: string; goal?: string; strategy?: string }) =>
+    request<PlanRead>(`/api/plans/${planId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+
   // ---- 对话 ----
   chat: (userId: number, message: string, conversationId?: number | null, enableReview = false) =>
     request<ChatResponse>('/api/chat', {
@@ -204,6 +237,7 @@ export function toTurns(detail: ConversationRead): ChatTurn[] {
     const meta = message.meta as {
       intent?: string
       agents?: string[]
+      tool_calls?: ToolCallRecord[]
       plan_id?: number | null
       trace_url?: string | null
     }
@@ -211,6 +245,7 @@ export function toTurns(detail: ConversationRead): ChatTurn[] {
       role: message.role === 'user' ? 'user' : 'assistant',
       content: message.content,
       outputs: Array.isArray(payload.outputs) ? payload.outputs : [],
+      toolCalls: Array.isArray(meta.tool_calls) ? meta.tool_calls : [],
       intent: meta.intent,
       agents: meta.agents,
       planId: meta.plan_id ?? null,

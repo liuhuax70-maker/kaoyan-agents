@@ -13,10 +13,12 @@ from app.schemas.nudge import NudgeMessage, WeeklyDigest
 from app.schemas.plan import PlanDraft, StageDraft, TaskBreakdown, TaskDraft
 from app.schemas.resource import ResourceItem, ResourcePlan
 from app.schemas.review import PlanReviewIssue, PlanReviewResult
+from app.schemas.revision import ChatSummary, PlanRevision, PlanRevisionOp, RevisionAction
 from app.schemas.routing import IntentDecision
 from app.schemas.tutoring import TutoringAnswer
 
 __all__ = [
+    "ChatSummary",
     "DiagnosisReport",
     "IntentDecision",
     "LearnerSnapshot",
@@ -24,11 +26,14 @@ __all__ = [
     "PlanDraft",
     "PlanReviewIssue",
     "PlanReviewResult",
+    "PlanRevision",
+    "PlanRevisionOp",
     "PlanSnapshot",
     "ProgressSnapshot",
     "ReminderSnapshot",
     "ResourceItem",
     "ResourcePlan",
+    "RevisionAction",
     "RiskItem",
     "StageDraft",
     "SubjectSnapshot",

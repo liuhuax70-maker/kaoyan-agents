@@ -7,7 +7,16 @@ from app.schemas.nudge import NudgeMessage, WeeklyDigest
 from app.schemas.plan import PlanDraft, TaskBreakdown
 from app.schemas.resource import ResourcePlan
 from app.schemas.review import PlanReviewResult
+from app.schemas.revision import ChatSummary, PlanRevision
 from app.schemas.tutoring import TutoringAnswer
+
+
+class ToolCallRecord(BaseModel):
+    """聊天 Agent 的一次工具调用，用于前端展示调用链。"""
+
+    name: str
+    agent: str
+    label: str = ""
 
 
 class AgentOutput(BaseModel):
@@ -39,6 +48,11 @@ class WorkflowResult(BaseModel):
     agents: list[str] = Field(default_factory=list)
     outputs: list[AgentOutput] = Field(default_factory=list)
 
+    tool_calls: list[ToolCallRecord] = Field(
+        default_factory=list, description="聊天 Agent 依次调起的子智能体工具"
+    )
+    summary: ChatSummary | None = Field(default=None, description="聊天 Agent 的统一总结")
+
     plan_draft: PlanDraft | None = None
     breakdown: TaskBreakdown | None = None
     diagnosis: DiagnosisReport | None = None
@@ -46,6 +60,7 @@ class WorkflowResult(BaseModel):
     tutoring: TutoringAnswer | None = None
     nudge: NudgeMessage | None = None
     digest: WeeklyDigest | None = None
+    plan_revision: PlanRevision | None = None
     plan_review: PlanReviewResult | None = None
 
     errors: list[str] = Field(default_factory=list)
@@ -59,13 +74,32 @@ class WorkflowResult(BaseModel):
 
         return self.plan_draft is not None
 
+    @property
+    def has_plan_revision(self) -> bool:
+        """是否产出了可落库的计划修订。"""
+
+        return self.plan_revision is not None and bool(self.plan_revision.ops)
+
     def reply_text(self) -> str:
-        """把多智能体输出拼接为一段可读回复。"""
+        """生成回复正文。
+
+        聊天 Agent 模式下以统一总结为准；没有总结时退回逐段拼接各智能体产出。
+        """
+
+        if self.summary is not None:
+            parts = [self.summary.summary]
+            parts.extend(f"- {line}" for line in self.summary.key_points)
+            if self.summary.next_actions:
+                parts.append("**建议下一步**")
+                parts.extend(f"- {line}" for line in self.summary.next_actions)
+            text = "\n\n".join(part for part in parts if part.strip())
+            if text.strip():
+                return text
 
         if not self.outputs:
             return "暂时无法生成建议，请补充更具体的备考问题。"
 
-        parts: list[str] = []
+        parts = []
         if len(self.outputs) > 1:
             names = "、".join(f"「{item.name}」" for item in self.outputs)
             parts.append(f"已调度 {names} 协同处理你的问题。")
