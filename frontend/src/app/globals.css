@@ -44,19 +44,34 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 对话正文的行距与段落节奏，贴近长文阅读 */
+/*
+ * 对话正文的排版。后端下发的就是 markdown（见 `components/Markdown.tsx`），
+ * 这里把 react-markdown 生成的标签调成中文长文阅读的节奏：
+ * 段间距统一 12px，末元素去掉下边距，避免与相邻卡片多出一段空白。
+ */
 .answer-body p {
   margin: 0 0 12px;
   line-height: 1.75;
 }
 
-.answer-body > :last-child {
+.answer-body > :last-child,
+.answer-body > :last-child > :last-child {
   margin-bottom: 0;
 }
 
 .answer-body strong {
   font-weight: 600;
   color: var(--color-ink);
+}
+
+.answer-body em {
+  font-style: italic;
+}
+
+.answer-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .answer-body ul,
@@ -68,6 +83,105 @@ body {
 
 .answer-body li {
   margin-bottom: 4px;
+}
+
+.answer-body li::marker {
+  color: #a8afbb;
+}
+
+.answer-body li > ul,
+.answer-body li > ol {
+  margin-bottom: 0;
+}
+
+.answer-body h1,
+.answer-body h2,
+.answer-body h3,
+.answer-body h4 {
+  margin: 18px 0 8px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--color-ink);
+}
+
+.answer-body h1 {
+  font-size: 17px;
+}
+
+.answer-body h2 {
+  font-size: 15.5px;
+}
+
+.answer-body h3,
+.answer-body h4 {
+  font-size: 14.5px;
+}
+
+.answer-body > :first-child {
+  margin-top: 0;
+}
+
+/* 行内代码与代码块：等宽、浅底，不跟随正文的 1.75 行距 */
+.answer-body code {
+  background: var(--color-surface-muted);
+  border-radius: 6px;
+  padding: 1px 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+}
+
+.answer-body pre {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--color-surface-muted);
+  border-radius: 10px;
+  line-height: 1.6;
+}
+
+.answer-body pre code {
+  background: none;
+  padding: 0;
+  font-size: 12.5px;
+}
+
+.answer-body blockquote {
+  margin: 0 0 12px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--color-line-strong);
+  color: var(--color-ink-muted);
+}
+
+.answer-body hr {
+  margin: 16px 0;
+  border: none;
+  border-top: 1px solid var(--color-line);
+}
+
+.answer-body table {
+  width: 100%;
+  margin: 0 0 12px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.answer-body th,
+.answer-body td {
+  border: 1px solid var(--color-line);
+  padding: 6px 9px;
+  text-align: left;
+  line-height: 1.6;
+}
+
+.answer-body th {
+  background: var(--color-surface-muted);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.answer-body img {
+  max-width: 100%;
+  border-radius: 10px;
 }
 
 /* ---------- 复用的容器与控件 ---------- */
@@ -195,7 +309,11 @@ body {
   }
 }
 
-.streaming-caret::after {
+/*
+ * 光标挂在最后一个文本块上而不是容器上：挂容器会让它跑到整段正文之外、
+ * 单独占一行，看起来像多了个空段落。
+ */
+.streaming-caret > :last-child::after {
   content: '▍';
   margin-left: 2px;
   animation: kaoyan-caret 1s steps(1) infinite;

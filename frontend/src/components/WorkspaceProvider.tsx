@@ -42,6 +42,8 @@ interface WorkspaceValue {
   turns: ChatTurn[]
   turnsLoading: boolean
   appendTurn: (turn: ChatTurn) => void
+  /** 就地改写某一轮，用于答复确认后把卡片从该轮上摘掉 */
+  patchTurn: (index: number, patch: Partial<ChatTurn>) => void
   /** 把服务端返回的会话 id 绑定到当前对话 */
   bindConversation: (conversationId: number) => void
 }
@@ -243,6 +245,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     setTurns((current) => [...current, turn])
   }, [])
 
+  const patchTurn = useCallback((index: number, patch: Partial<ChatTurn>) => {
+    setTurns((current) =>
+      current.map((turn, position) => (position === index ? { ...turn, ...patch } : turn)),
+    )
+  }, [])
+
   const bindConversation = useCallback((conversationId: number) => {
     setActiveConversationId(conversationId)
   }, [])
@@ -269,6 +277,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       turns,
       turnsLoading,
       appendTurn,
+      patchTurn,
       bindConversation,
     }),
     [
@@ -291,6 +300,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
       turns,
       turnsLoading,
       appendTurn,
+      patchTurn,
       bindConversation,
     ],
   )

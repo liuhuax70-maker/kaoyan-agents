@@ -184,16 +184,27 @@ export interface ToolCallRecord {
   label: string
 }
 
+/** 计划落库前的人工确认请求。后端暂停时随 `awaiting_confirmation` 一起下发。 */
+export interface PlanConfirmation {
+  kind: 'plan_draft' | 'plan_revision'
+  title: string
+  summary: string
+  items: string[]
+  plan_id: number | null
+  thread_id: string
+}
+
 export interface ChatResponse {
   conversation_id: number
   message_id: number | null
-  intent: string
   agents: string[]
   tool_calls: ToolCallRecord[]
   outputs: AgentOutput[]
   reply: string
   plan_id: number | null
   plan_review: PlanReviewResult | null
+  /** 非空表示本次停在确认闸门上、尚未写库。 */
+  confirmation: PlanConfirmation | null
   errors: string[]
   trace_id: string | null
   trace_url: string | null
@@ -205,10 +216,11 @@ export interface ChatTurn {
   content: string
   outputs: AgentOutput[]
   toolCalls?: ToolCallRecord[]
-  intent?: string
   agents?: string[]
   planId?: number | null
   traceUrl?: string | null
+  /** 该轮停在计划确认上时携带待确认内容，由 `ConfirmationCard` 渲染。 */
+  confirmation?: PlanConfirmation | null
   createdAt?: string
 }
 
@@ -262,21 +274,39 @@ export interface DashboardRead {
   recent_reminders: ReminderRead[]
 }
 
-/** 对话流式事件 */
+/**
+ * 对话流式事件。
+ *
+ * `token` 与 `done` / `awaiting_confirmation` 是两条收尾路径：正常跑完发 `done`；
+ * 停在计划确认闸门上时发 `awaiting_confirmation` 并就此结束，不会再有 `done`。
+ */
 export type StreamEvent =
   | { type: 'start'; conversation_id: number }
   | { type: 'progress'; node: string; agent?: string; status: string; detail: string }
   | { type: 'output'; output: AgentOutput }
+  | { type: 'token'; text: string }
+  /** 聊天 Agent 开始执行某个子智能体工具；调用链的权威来源 */
+  | { type: 'tool_call'; name: string; agent: string; label: string }
   | {
       type: 'done'
       conversation_id: number
       message_id: number | null
-      intent: string
       agents: string[]
       tool_calls: ToolCallRecord[]
       reply: string
       plan_id: number | null
       errors: string[]
+      trace_id: string | null
+      trace_url: string | null
+    }
+  | {
+      type: 'awaiting_confirmation'
+      conversation_id: number
+      message_id: number | null
+      reply: string
+      agents: string[]
+      tool_calls: ToolCallRecord[]
+      confirmation: PlanConfirmation | null
       trace_id: string | null
       trace_url: string | null
     }

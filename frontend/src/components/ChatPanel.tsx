@@ -3,10 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { AgentAnswer } from './AgentAnswer'
+import { ConfirmationCard } from './ConfirmationCard'
+import { Markdown } from './Markdown'
 import { useWorkspace } from './WorkspaceProvider'
 import { IconArrowUp, IconBulb, IconCopy, IconGlobe, IconStop } from './icons'
-import { Badge, IconButton, Spinner, TogglePill, cx } from './ui'
-import { INTENT_LABEL, TOOL_LABEL } from '@/lib/format'
+import { IconButton, Spinner, TogglePill, cx } from './ui'
+import { TOOL_LABEL } from '@/lib/format'
+import { api } from '@/lib/api'
 import { streamChat } from '@/lib/sse'
 import type { AgentOutput, ChatTurn, StreamEvent, ToolCallRecord } from '@/lib/types'
 
@@ -17,12 +20,12 @@ const PRESETS = [
   '数学的极限为什么总是算不对',
 ]
 
-const SUMMARY_AGENT = 'chat_agent'
-
 interface LiveState {
   steps: Array<{ node: string; detail: string }>
   tools: ToolCallRecord[]
   outputs: AgentOutput[]
+  /** 聊天 Agent 的最终回答，由 `token` 事件逐段追加而来 */
+  reply: string
 }
 
 export function ChatPanel() {
@@ -30,6 +33,7 @@ export function ChatPanel() {
     userId,
     turns,
     appendTurn,
+    patchTurn,
     bindConversation,
     activeConversationId,
     reloadConversations,
@@ -41,6 +45,7 @@ export function ChatPanel() {
   const [input, setInput] = useState('')
   const [live, setLive] = useState<LiveState | null>(null)
   const [sending, setSending] = useState(false)
+  const [resolving, setResolving] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [enableReview, setEnableReview] = useState(false)
   const [enableRetrieval, setEnableRetrieval] = useState(true)
@@ -74,7 +79,7 @@ export function ChatPanel() {
     setInput('')
     setSending(true)
     appendTurn({ role: 'user', content: message, outputs: [] })
-    setLive({ steps: [], tools: [], outputs: [] })
+    setLive({ steps: [], tools: [], outputs: [], reply: '' })
     requestAnimationFrame(resizeTextarea)
 
     const controller = new AbortController()
@@ -83,40 +88,73 @@ export function ChatPanel() {
     let outputs: AgentOutput[] = []
     let toolCalls: ToolCallRecord[] = []
     let reply = ''
-    let intent = ''
     let agents: string[] = []
     let planId: number | null = null
     let traceUrl: string | null = null
+    // 收尾走两条路：跑完发 done，停在确认闸门上发 awaiting_confirmation
+    let pending: ChatTurn | null = null
 
+    // 知识点：自定义流在客户端的形态 —— token 增量不是一次响应，而是一串增量帧，
+//   因此这里累积拼接而不是覆盖；拼起来的正文应恰好等于收尾帧里的 reply
+//   （第5章 LangGraph·流式）
     const handle = (event: StreamEvent) => {
       switch (event.type) {
         case 'start':
           bindConversation(event.conversation_id)
           break
         case 'progress':
-          setLive((current) => {
-            if (!current) {
-              return current
-            }
-            const steps = [...current.steps, { node: event.node, detail: event.detail }]
-            // 工具调用事件以工具名作为 node，据此实时拼出调用链
-            const tools = TOOL_LABEL[event.node]
-              ? [...current.tools, { name: event.node, agent: event.agent ?? '', label: '' }]
-              : current.tools
-            return { ...current, steps, tools }
-          })
+          setLive((current) =>
+            current
+              ? { ...current, steps: [...current.steps, { node: event.node, detail: event.detail }] }
+              : current,
+          )
+          break
+        case 'tool_call':
+          setLive((current) =>
+            current
+              ? {
+                  ...current,
+                  tools: [
+                    ...current.tools,
+                    { name: event.name, agent: event.agent, label: event.label },
+                  ],
+                }
+              : current,
+          )
           break
         case 'output':
           outputs = [...outputs, event.output]
           setLive((current) => (current ? { ...current, outputs } : current))
           break
+        case 'token':
+          // 逐段追加：既写进实时气泡，也留到最后作为这一轮的正文
+          reply += event.text
+          setLive((current) => (current ? { ...current, reply } : current))
+          break
         case 'done':
-          reply = event.reply
-          intent = event.intent
+          reply = event.reply || reply
           agents = event.agents
           toolCalls = event.tool_calls ?? []
           planId = event.plan_id
           traceUrl = event.trace_url
+          break
+        case 'awaiting_confirmation':
+          // 这一轮没有完成，也没有写库：把待确认内容挂成一轮助手消息，
+          // 让 ConfirmationCard 就地渲染，答复后它的结果另起一轮
+          reply = event.reply || reply
+          agents = event.agents
+          toolCalls = event.tool_calls ?? []
+          traceUrl = event.trace_url
+          pending = {
+            role: 'assistant',
+            content: reply,
+            outputs,
+            toolCalls,
+            agents,
+            confirmation: event.confirmation,
+            traceUrl,
+            createdAt: new Date().toISOString(),
+          }
           break
         case 'error':
           setLocalError(event.message)
@@ -138,13 +176,14 @@ export function ChatPanel() {
         controller.signal,
       )
 
-      if (reply || outputs.length > 0) {
+      if (pending) {
+        appendTurn(pending)
+      } else if (reply || outputs.length > 0) {
         appendTurn({
           role: 'assistant',
           content: reply,
           outputs,
           toolCalls,
-          intent,
           agents,
           planId,
           traceUrl,
@@ -163,6 +202,49 @@ export function ChatPanel() {
       abortRef.current = null
       setLive(null)
       setSending(false)
+    }
+  }
+
+  // 知识点：interrupt 的恢复 —— 第二次请求带回的是「答复」而不是新输入，
+//   后端以 Command(resume=…) 让图从暂停点原地继续，不重跑已完成的节点
+//   （第5章 LangGraph·人工确认）
+  /**
+   * 答复一次待确认的计划。
+   *
+   * 第一次答复才真正触发落库；答复后立刻把该轮上的卡片摘掉，
+   * 免得同一个确认被点第二次（后端也有会话状态兜底，重复提交会返回 404）。
+   */
+  const resolveConfirmation = async (
+    index: number,
+    approve: boolean,
+    feedback: string,
+  ) => {
+    if (activeConversationId === null || resolving) {
+      return
+    }
+    setResolving(true)
+    setLocalError(null)
+    try {
+      const result = await api.confirmPlan(activeConversationId, approve, feedback)
+      patchTurn(index, { confirmation: null })
+      appendTurn({
+        role: 'assistant',
+        content: result.reply,
+        outputs: result.outputs,
+        toolCalls: result.tool_calls,
+        agents: result.agents,
+        planId: result.plan_id,
+        traceUrl: result.trace_url,
+        createdAt: new Date().toISOString(),
+      })
+      if (result.plan_id) {
+        await refresh()
+      }
+      await reloadConversations()
+    } catch (cause) {
+      setLocalError(cause instanceof Error ? cause.message : '确认失败')
+    } finally {
+      setResolving(false)
     }
   }
 
@@ -240,6 +322,10 @@ export function ChatPanel() {
                     turn={turn}
                     copied={copiedIndex === index}
                     onCopy={() => void copyTurn(turn, index)}
+                    resolving={resolving}
+                    onResolve={(approve, feedback) =>
+                      void resolveConfirmation(index, approve, feedback)
+                    }
                   />
                 ),
               )}
@@ -279,7 +365,7 @@ export function ChatPanel() {
                   onClick={() => setEnableReview((value) => !value)}
                   icon={<IconBulb size={14} />}
                   label="深度思考"
-                  title="触发 CrewAI 多角色计划评审"
+                  title="计划产出后触发一轮独立评审"
                 />
                 <TogglePill
                   active={enableRetrieval}
@@ -326,38 +412,44 @@ export function ChatPanel() {
   )
 }
 
-/** 助手回答：先给统一总结，再按需展开子智能体的详细产出。 */
+/** 助手回答：正文在前，待确认的计划、调用链与子智能体产出依次跟在下面。 */
 function AssistantTurn({
   turn,
   copied,
   onCopy,
+  resolving,
+  onResolve,
 }: {
   turn: ChatTurn
   copied: boolean
   onCopy: () => void
+  resolving: boolean
+  onResolve: (approve: boolean, feedback: string) => void
 }) {
-  const details = turn.outputs.filter((output) => output.agent !== SUMMARY_AGENT)
-
   return (
     <div className="flex gap-3.5">
       <AssistantAvatar />
       <div className="min-w-0 flex-1 space-y-3">
-        {turn.content && (
-          <div className="answer-body whitespace-pre-wrap text-[14px] leading-[1.75] text-ink">
-            {turn.content}
-          </div>
+        {turn.content && <Markdown>{turn.content}</Markdown>}
+
+        {turn.confirmation && (
+          <ConfirmationCard
+            confirmation={turn.confirmation}
+            busy={resolving}
+            onResolve={onResolve}
+          />
         )}
 
         <ToolChain calls={turn.toolCalls ?? []} />
 
-        {details.length > 0 && (
+        {turn.outputs.length > 0 && (
           <details className="group surface">
             <summary className="cursor-pointer list-none px-3.5 py-2.5 text-[12.5px] text-ink-soft hover:text-ink">
-              查看 {details.length} 个子智能体的详细产出
+              查看 {turn.outputs.length} 个子智能体的详细产出
               <span className="ml-1 text-ink-muted group-open:hidden">展开</span>
             </summary>
             <div className="space-y-4 border-t border-line px-3.5 py-3.5">
-              {details.map((output, index) => (
+              {turn.outputs.map((output, index) => (
                 <AgentAnswer key={index} output={output} />
               ))}
             </div>
@@ -381,8 +473,6 @@ function AssistantTurn({
             <IconCopy size={13} />
             {copied ? '已复制' : '复制'}
           </button>
-
-          {turn.intent && <Badge tone="indigo">{INTENT_LABEL[turn.intent] ?? turn.intent}</Badge>}
 
           {turn.traceUrl && (
             <a
@@ -414,8 +504,9 @@ function ToolChain({ calls }: { calls: ToolCallRecord[] }) {
           key={`${call.name}-${index}`}
           className="inline-flex items-center gap-1 rounded-md bg-surface-muted px-2 py-0.5 text-[11.5px]"
         >
-          <span className="font-medium text-ink">{TOOL_LABEL[call.name] ?? call.name}</span>
-          {call.label && <span className="text-ink-muted">· {call.label}</span>}
+          <span className="font-medium text-ink">
+            {call.label || TOOL_LABEL[call.name] || call.name}
+          </span>
         </span>
       ))}
     </div>
@@ -424,30 +515,32 @@ function ToolChain({ calls }: { calls: ToolCallRecord[] }) {
 
 function LiveTurn({ live }: { live: LiveState }) {
   const lastStep = live.steps[live.steps.length - 1]
-  const details = live.outputs.filter((output) => output.agent !== SUMMARY_AGENT)
-  const summary = live.outputs.find((output) => output.agent === SUMMARY_AGENT)
+  const streaming = live.reply.length > 0
 
   return (
     <div className="flex gap-3.5">
       <AssistantAvatar />
       <div className="min-w-0 flex-1 space-y-3">
-        <div className="flex items-center gap-2 text-[13px] text-ink-muted">
-          <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
-          <span className="text-ink-soft">
-            {live.tools.length > 0 ? '子智能体执行中…' : '正在理解你的诉求…'}
-          </span>
-          {lastStep && <span className="truncate">· {lastStep.detail}</span>}
-        </div>
+        {streaming ? (
+          // 正文开始逐 token 到达后就不再展示执行进度，避免与正文争夺注意力
+          <Markdown className="streaming-caret">{live.reply}</Markdown>
+        ) : (
+          <div className="flex items-center gap-2 text-[13px] text-ink-muted">
+            <span className="h-1.5 w-1.5 animate-pulse-soft rounded-full bg-accent" />
+            <span className="text-ink-soft">
+              {live.tools.length > 0 ? '子智能体执行中…' : '正在理解你的诉求…'}
+            </span>
+            {lastStep && <span className="truncate">· {lastStep.detail}</span>}
+          </div>
+        )}
 
         <ToolChain calls={live.tools} />
 
-        {details.map((output, index) => (
+        {live.outputs.map((output, index) => (
           <AgentAnswer key={index} output={output} />
         ))}
 
-        {summary && <AgentAnswer output={summary} />}
-
-        {live.outputs.length === 0 && live.steps.length === 0 && (
+        {live.outputs.length === 0 && live.steps.length === 0 && !streaming && (
           <Spinner label="正在准备上下文" />
         )}
       </div>

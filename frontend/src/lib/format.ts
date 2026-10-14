@@ -62,17 +62,6 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
   high: '高',
 }
 
-export const INTENT_LABEL: Record<string, string> = {
-  revise: '修改计划',
-  plan: '制定计划',
-  breakdown: '任务拆解',
-  tutor: '答疑讲解',
-  review: '复盘诊断',
-  resource: '资料推荐',
-  nudge: '督促提醒',
-  chat: '综合咨询',
-}
-
 export const AGENT_LABEL: Record<string, string> = {
   chat_agent: '备考督导助手',
   coordinator: '调度协调者',

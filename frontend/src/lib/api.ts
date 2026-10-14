@@ -5,6 +5,7 @@ import type {
   ConversationRead,
   ConversationSummary,
   DashboardRead,
+  PlanConfirmation,
   PlanRead,
   Priority,
   ProfileInput,
@@ -155,10 +156,21 @@ export const api = {
     request<TargetRead>('/api/targets', { method: 'POST', body: JSON.stringify(payload) }),
 
   // ---- 学习计划 ----
+  /**
+   * 计划页的「生成计划」。
+   *
+   * 显式关掉 `confirm_commit`：落库前的人工确认是为**对话里顺手改计划**设的闸门，
+   * 而这里用户点按钮本身就是明确的确认动作，再问一遍只是把同一次同意问两次。
+   */
   generatePlan: (userId: number, goal = '', enableReview = false) =>
     request<ChatResponse>('/api/plans/generate', {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, goal, enable_review: enableReview }),
+      body: JSON.stringify({
+        user_id: userId,
+        goal,
+        enable_review: enableReview,
+        confirm_commit: false,
+      }),
     }),
 
   listPlans: (userId: number, limit = 10) =>
@@ -212,6 +224,17 @@ export const api = {
   getConversation: (conversationId: number) =>
     request<ConversationRead>(`/api/chat/conversations/${conversationId}`),
 
+  /** 答复对话中被暂停的计划确认；答复后才真正落库。 */
+  confirmPlan: (conversationId: number, approve: boolean, feedback = '') =>
+    request<ChatResponse>('/api/chat/confirm', {
+      method: 'POST',
+      body: JSON.stringify({
+        conversation_id: conversationId,
+        approve,
+        feedback,
+      }),
+    }),
+
   // ---- 提醒 ----
   listReminders: (userId: number, limit = 20) =>
     request<ReminderRead[]>(`/api/reminders?user_id=${userId}&limit=${limit}`),
@@ -235,21 +258,22 @@ export function toTurns(detail: ConversationRead): ChatTurn[] {
   return detail.messages.map((message) => {
     const payload = message.payload as { outputs?: AgentOutput[] }
     const meta = message.meta as {
-      intent?: string
       agents?: string[]
       tool_calls?: ToolCallRecord[]
       plan_id?: number | null
       trace_url?: string | null
+      pending_confirmation?: PlanConfirmation | null
     }
     return {
       role: message.role === 'user' ? 'user' : 'assistant',
       content: message.content,
       outputs: Array.isArray(payload.outputs) ? payload.outputs : [],
       toolCalls: Array.isArray(meta.tool_calls) ? meta.tool_calls : [],
-      intent: meta.intent,
       agents: meta.agents,
       planId: meta.plan_id ?? null,
       traceUrl: meta.trace_url ?? null,
+      // 刷新页面后仍要把未答复的确认卡片放回去，否则用户没法回答那个待确认的计划
+      confirmation: meta.pending_confirmation ?? null,
       createdAt: message.created_at,
     }
   })

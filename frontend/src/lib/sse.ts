@@ -14,6 +14,8 @@ export async function streamChat(
     conversation_id?: number | null
     enable_review?: boolean
     enable_retrieval?: boolean
+    /** 缺省由后端读取全局配置：计划落库前是否暂停等人工确认。 */
+    confirm_commit?: boolean
   },
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
