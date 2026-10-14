@@ -38,7 +38,7 @@ def test_roles_are_fully_defined() -> None:
     """每个角色的提示词都必须包含输出契约与领域约束。"""
 
     assert set(WORKER_ROLE_KEYS) <= set(ROLES)
-    assert "coordinator" in ROLES
+    assert "chat_agent" in ROLES
 
     for role in ROLES.values():
         assert role.name

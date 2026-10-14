@@ -14,6 +14,7 @@ from app.prompts.context import (
     render_reminder,
     render_retrieved,
     render_subjects,
+    trim_history,
 )
 from app.prompts.templates import (
     PROMPT_SPECS,
@@ -40,4 +41,5 @@ __all__ = [
     "render_reminder",
     "render_retrieved",
     "render_subjects",
+    "trim_history",
 ]

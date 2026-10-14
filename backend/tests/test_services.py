@@ -6,9 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import (
+    AgentConversation,
+    AgentMessage,
     ExamTarget,
     ExamType,
     LearnerProfile,
+    MessageRole,
     PlanStage,
     PlanStatus,
     StudyPlan,
@@ -28,6 +31,7 @@ from app.services import (
     load_learner_snapshot,
     load_plan_snapshot,
 )
+from app.services.conversations import load_history
 from app.services.plans import persist_plan_draft
 
 TODAY = date(2026, 10, 10)
@@ -164,6 +168,82 @@ async def test_active_user_ids_only_returns_preparing(app_db: AsyncSession) -> N
     ids = await _seed(app_db)
 
     assert await active_user_ids(app_db) == [ids["user"]]
+
+
+async def _seed_conversation(
+    session: AsyncSession, user_id: int, turns: list[tuple[MessageRole, str]]
+) -> tuple[int, int]:
+    """建一个会话与若干条消息，返回 ``(会话 id, 最后一条消息 id)``。"""
+
+    conversation = AgentConversation(user_id=user_id, title="数学答疑", workflow="multi_agent_chat")
+    session.add(conversation)
+    await session.flush()
+
+    last_id = 0
+    for role, content in turns:
+        message = AgentMessage(conversation_id=conversation.id, role=role, content=content)
+        session.add(message)
+        await session.flush()
+        last_id = message.id
+
+    return conversation.id, last_id
+
+
+async def test_load_history_returns_previous_turns_in_order(app_db: AsyncSession) -> None:
+    """历史只含本次提问之前的往来正文，按时间正序返回。"""
+
+    ids = await _seed(app_db)
+    conversation_id, current_id = await _seed_conversation(
+        app_db,
+        ids["user"],
+        [
+            (MessageRole.USER, "第一问"),
+            (MessageRole.ASSISTANT, "第一答"),
+            (MessageRole.USER, "第二问"),
+            (MessageRole.ASSISTANT, "第二答"),
+            (MessageRole.USER, "第三问"),
+        ],
+    )
+
+    history = await load_history(app_db, conversation_id, 20, before_id=current_id)
+
+    # 当前提问（第三问）被排除在外，其余按时间正序
+    assert [item["content"] for item in history] == ["第一问", "第一答", "第二问", "第二答"]
+    assert {item["role"] for item in history} == {"user", "assistant"}
+
+
+async def test_load_history_keeps_the_nearest_turns_and_drops_tool_rows(
+    app_db: AsyncSession,
+) -> None:
+    """条数上限从最近的往回取；工具与系统消息不进上下文预算。"""
+
+    ids = await _seed(app_db)
+    conversation_id, current_id = await _seed_conversation(
+        app_db,
+        ids["user"],
+        [
+            (MessageRole.USER, "第一问"),
+            (MessageRole.ASSISTANT, "第一答"),
+            (MessageRole.TOOL, "工具中间结果不该进上下文"),
+            (MessageRole.SYSTEM, "系统提示不该进上下文"),
+            (MessageRole.USER, "第二问"),
+            (MessageRole.ASSISTANT, "第二答"),
+            (MessageRole.USER, "第三问"),
+        ],
+    )
+
+    history = await load_history(app_db, conversation_id, limit=2, before_id=current_id)
+
+    assert [item["content"] for item in history] == ["第二问", "第二答"]
+
+
+async def test_load_history_is_empty_for_the_first_turn(app_db: AsyncSession) -> None:
+    ids = await _seed(app_db)
+    conversation_id, current_id = await _seed_conversation(
+        app_db, ids["user"], [(MessageRole.USER, "第一问")]
+    )
+
+    assert await load_history(app_db, conversation_id, 20, before_id=current_id) == []
 
 
 async def test_persist_plan_draft_creates_stages_and_tasks(app_db: AsyncSession) -> None:

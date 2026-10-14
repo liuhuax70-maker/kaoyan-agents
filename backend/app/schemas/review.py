@@ -19,8 +19,8 @@ class PlanReviewIssue(BaseModel):
 class PlanReviewResult(BaseModel):
     """计划评审结论。
 
-    由「评审专家 → 规划师」两轮 CrewAI 协作产出：
-    先找出问题，再给出修订结论。
+    由工作流的 ``review_plan`` 节点独立产出：生成与评审分成两次模型调用，
+    避免模型在同一段上下文里既当作者又当裁判。
     """
 
     approved: bool = Field(default=False, description="是否可以直接执行")

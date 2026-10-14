@@ -1,7 +1,6 @@
 """把结构化智能体结果渲染成摘要与要点，供前端展示。"""
 
 from app.schemas import (
-    ChatSummary,
     DiagnosisReport,
     NudgeMessage,
     PlanDraft,
@@ -126,12 +125,3 @@ def render_revision(revision: PlanRevision) -> RenderResult:
     else:
         highlights = ["未识别出可执行的修改，计划保持不变"]
     return "计划修订提案", revision.summary or "已生成修订提案", highlights
-
-
-def render_summary(summary: ChatSummary) -> RenderResult:
-    """渲染聊天 Agent 的统一总结。"""
-
-    highlights = [*summary.key_points[:4]]
-    if summary.next_actions:
-        highlights.append(f"建议下一步：{'；'.join(summary.next_actions[:3])}")
-    return "统一总结", summary.summary, highlights

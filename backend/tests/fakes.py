@@ -1,13 +1,36 @@
-"""离线兜底内容生成。
+# 知识点：假模型的替身位置 —— 假件替换在 I/O 边界（模型工厂与向量化网络调用），
+#   而不是在业务层加分支，因此真实的编排、解析与落库路径全部保留
+#   （第2章 LangChain核心组件·模型）
+"""测试专用假件：假模型、假向量化与内存检查点。
 
-在未配置大模型密钥、或模型调用失败时，仍要保证全流程可跑通，
-因此为每个任务提供确定性的结构化内容生成器。
-生成结果同样会经过 Pydantic 校验，与真实模型输出走同一条路径。
+生产代码中已不再有任何离线降级路径：模型调用失败即失败。
+测试则通过 ``install_fake_model`` 把模型工厂替换成本文件的 ``FakeChatModel``，
+从而在无密钥、无网络的 CI 环境中真实地跑完工具调用、结构化解析与落库全流程。
+
+``FakeChatModel`` 承担两个角色：
+
+- **聊天 Agent 的调度**：解析用户输入中的关键词，产出带 ``tool_calls`` 的
+  ``AIMessage``，等价地驱动``bind_tools`` 那一套原生工具调用协议；
+- **子智能体的结构化产出**：从提示词中还原上下文，生成 schema 合法的 JSON 文本。
+
+从提示词里还原上下文（而不是由生产代码传入 ``stub_context``）是刻意的：
+真实模型也只能看到提示词，假模型读同一份输入才谈得上等价。
 """
 
+import json
 import re
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
+
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+
+from app.agents.tools import TOOLS_BY_NAME
+from app.knowledge.embeddings import BaseEmbedder
+from app.knowledge.text import normalize_vector, token_hash, tokenize
+from app.schemas import LearnerSnapshot, PlanDraft
 
 PayloadBuilder = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -84,6 +107,133 @@ DEFAULT_PLAYBOOK = {
 }
 
 
+# --------------------------------------------------------------------------
+# 从提示词还原上下文
+# --------------------------------------------------------------------------
+
+SECTION_RE = re.compile(r"^【(?P<name>[^】]+)】$", re.MULTILINE)
+
+
+def message_text(message: BaseMessage) -> str:
+    """把消息内容压平成纯文本。"""
+
+    content = message.content
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            item if isinstance(item, str) else str(item.get("text", ""))
+            for item in content
+            if isinstance(item, (str, dict))
+        )
+    return str(content)
+
+
+def _section(text: str, *headings: str) -> str:
+    """取出指定标题下的正文，直到下一个标题为止。"""
+
+    marks = list(SECTION_RE.finditer(text))
+    for index, mark in enumerate(marks):
+        if mark.group("name") not in headings:
+            continue
+        start = mark.end()
+        end = marks[index + 1].start() if index + 1 < len(marks) else len(text)
+        return text[start:end].strip()
+    return ""
+
+
+def _search(pattern: str, text: str, cast: Callable[[str], Any]) -> Any:
+    matched = re.search(pattern, text)
+    return cast(matched.group(1)) if matched else None
+
+
+BULLET_RE = re.compile(r"^\s*(?:[-·*]|\d+\.)\s*")
+NO_DATA = "（暂无数据）"
+
+
+def _strip_bullet(line: str) -> str:
+    """去掉列表标记与薄弱标记，还原出纯名目。"""
+
+    return BULLET_RE.sub("", line).strip().removesuffix("【薄弱】")
+
+
+def _bullets_of(text: str, label: str) -> list[str]:
+    """取出「标签（N 项）：」后面紧跟的那组列表项。"""
+
+    matched = re.search(rf"{label}（\d+ 项）：(.*?)(?=\n(?!\s*-)|\Z)", text, re.DOTALL)
+    if not matched:
+        return []
+    items = [_strip_bullet(line) for line in matched.group(1).splitlines() if line.strip()]
+    return [item for item in items if item and item != NO_DATA]
+
+
+def parse_prompt_context(messages: Sequence[BaseMessage]) -> dict[str, Any]:
+    """从提示词中还原离线生成所需的上下文。
+
+    真实模型读到的就是这些文字，因此假模型读同一份输入是等价的，
+    而不是绕过提示词直接拿到业务对象。
+    """
+
+    text = "\n".join(message_text(item) for item in messages)
+
+    subjects = [
+        _strip_bullet(item)
+        for item in re.findall(r"^(.+?)｜类别 ", text, re.MULTILINE)
+    ]
+    weak = [
+        _strip_bullet(item)
+        for item in re.findall(r"^(.+?)【薄弱】｜类别 ", text, re.MULTILINE)
+    ]
+
+    request = _section(
+        text,
+        "本次诉求",
+        "用户输入",
+        "考生提出的问题",
+        "复盘诉求",
+        "资料需求",
+        "待拆解的阶段或目标",
+        "用户诉求",
+    )
+    plan_tasks = [
+        str(item).strip()
+        for item in re.findall(r"^\s+· \[\w+\] \S+ (?:\S+｜)?(.+?)（", text, re.MULTILINE)
+    ]
+    durations = [
+        int(item) for item in re.findall(r"单任务时长 \d+-(\d+) 分钟", text)
+    ]
+
+    return {
+        "request": request,
+        "scope": request,
+        "subjects": subjects,
+        "weak_subjects": weak,
+        "days_left": _search(r"剩余天数：(\d+) 天", text, int),
+        "daily_hours": _search(r"每日可投入：([\d.]+) 小时", text, float),
+        "attention_span": _search(r"单次专注时长：(\d+) 分钟", text, int),
+        "self_discipline": _search(r"自律程度：(\d+)/5", text, int),
+        "completion_rate": _search(r"整体完成率 ([\d.]+)%", text, lambda value: float(value) / 100),
+        "total_tasks": _search(r"任务总数 (\d+)，已完成", text, int),
+        "done_tasks": _search(r"已完成为? (\d+)，进行中", text, int) or 0,
+        "overdue_count": _search(r"逾期 (\d+)", text, int) or 0,
+        "idle_days": _search(r"连续未学习 (\d+) 天", text, int) or 0,
+        "recent_minutes": _search(r"近 7 天学习时长 (\d+) 分钟", text, int) or 0,
+        "plan_tasks": plan_tasks,
+        "due_tasks": _bullets_of(text, "今日待完成任务"),
+        "overdue_tasks": _bullets_of(text, "已逾期任务"),
+        # 计划评审所需的草稿指标
+        "horizon_days": _search(r"计划周期：(\d+) 天", text, int),
+        "stage_count": _search(r"阶段数量：(\d+)｜", text, int),
+        "task_count": _search(r"任务总数：(\d+)", text, int),
+        "max_task_minutes": durations[0] if durations else None,
+    }
+
+
+# --------------------------------------------------------------------------
+# 结构化内容生成
+# --------------------------------------------------------------------------
+
+
 def _subjects(context: dict[str, Any]) -> list[str]:
     raw = context.get("subjects") or []
     names = [str(item) for item in raw if str(item).strip()]
@@ -109,34 +259,6 @@ def _stage_plan(days: int) -> list[tuple[str, str, float, float, str]]:
         ("真题冲刺", "sprint", 0.7, 0.9, "成套真题限时训练"),
         ("模考复盘", "mock", 0.9, 1.0, "全真模考保持手感并压缩背诵清单"),
     ]
-
-
-def build_intent(context: dict[str, Any]) -> dict[str, Any]:
-    """按关键词判定意图，作为调度协调者的离线实现。"""
-
-    request = str(context.get("request", "")).lower()
-    scores = {
-        intent: sum(1 for word in words if word in request)
-        for intent, words in INTENT_KEYWORDS.items()
-    }
-    best = max(scores, key=lambda key: scores[key])
-    hits = scores[best]
-
-    if hits == 0:
-        return {
-            "intent": "chat",
-            "confidence": 0.4,
-            "agents": INTENT_AGENTS["chat"],
-            "reason": "未命中明确意图关键词，先按答疑处理并追问补充信息",
-        }
-
-    total = sum(scores.values()) or 1
-    return {
-        "intent": best,
-        "confidence": round(min(0.55 + hits * 0.15, 0.95), 2),
-        "agents": INTENT_AGENTS[best],
-        "reason": f"命中「{best}」相关关键词 {hits} 个，在全部候选中占比 {hits / total:.0%}",
-    }
 
 
 def build_plan_draft(context: dict[str, Any]) -> dict[str, Any]:
@@ -534,7 +656,7 @@ def build_plan_review(context: dict[str, Any]) -> dict[str, Any]:
     """对学习计划做规则化评审。
 
     评审不是走过场：这里真的会校验任务粒度、阶段划分、科目覆盖与输入完整性，
-    因此离线状态下也能给出有依据的评审结论。
+    因此假模型也能给出有依据的评审结论。
     """
 
     issues: list[dict[str, Any]] = []
@@ -645,9 +767,9 @@ def _first_pending_task(context: dict[str, Any]) -> str:
 
 
 def build_plan_revision(context: dict[str, Any]) -> dict[str, Any]:
-    """按关键词把修订诉求翻译成计划修订指令，作为计划修订师的离线实现。
+    """把修订诉求翻译成计划修订指令。
 
-    离线模式无法理解自由表述，因此只在能明确识别意图时才产出操作；
+    假模型无法理解自由表述，因此只在能明确识别意图时才产出操作；
     识别不了就返回空操作，由总结环节如实说明，而不是臆造改动。
     """
 
@@ -708,32 +830,176 @@ def build_plan_revision(context: dict[str, Any]) -> dict[str, Any]:
         }
 
     return {
-        "summary": "离线模式下无法解析这条修改要求，未对计划做任何改动",
+        "summary": "无法解析这条修改要求，未对计划做任何改动",
         "ops": [],
     }
 
 
-def build_chat_summary(context: dict[str, Any]) -> dict[str, Any]:
-    """把子智能体产出整合成统一总结，作为聊天 Agent 的离线实现。"""
+# 知识点：假模型的等价性 —— 替身要与真实模型消费同一份输入（提示词）并产出同形状的输出，
+#   否则测试验证的是假件的想象而不是真实链路（第2章 LangChain核心组件·模型）
+# --------------------------------------------------------------------------
+# 正文生成（双轨信封的 narrative 一轨）
+#
+# 真实模型在同一次调用里既写正文、又填结构化字段；假模型必须做同样的事，
+# 否则「子智能体正文原样回灌给聊天 Agent」这条链路在测试中根本不会被走到。
+# --------------------------------------------------------------------------
 
-    raw = str(context.get("tool_results") or "")
-    lines = [line.strip(" -·") for line in raw.splitlines() if line.strip()]
-    if not lines:
-        return {
-            "summary": "这次没有需要调用的专业能力，无法给出针对性建议。",
-            "key_points": [],
-            "next_actions": ["补充目标院校与考试日期", "说明每天可投入的学习时长"],
-        }
-
-    return {
-        "summary": lines[0],
-        "key_points": lines[1:5],
-        "next_actions": lines[-2:] if len(lines) > 2 else [],
-    }
+NarrativeBuilder = Callable[[dict[str, Any]], str]
 
 
-OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
-    "intent_routing": build_intent,
+def _block(title: str, lines: Sequence[Any]) -> str:
+    """渲染一个 markdown 小节，空内容直接消失。"""
+
+    body = "\n".join(f"- {line}" for line in lines if str(line).strip())
+    return f"**{title}**\n{body}" if body else ""
+
+
+def _doc(*blocks: str) -> str:
+    return "\n\n".join(block for block in blocks if block.strip())
+
+
+def narrate_plan_draft(payload: dict[str, Any]) -> str:
+    """分阶段学习计划的正文。"""
+
+    stages = payload.get("stages") or []
+    return _doc(
+        f"## {payload.get('title') or '分阶段备考计划'}",
+        f"目标：{payload.get('goal') or '按阶段推进备考'}",
+        f"总周期 {payload.get('horizon_days')} 天，每日投入 {payload.get('daily_hours')} 小时，"
+        f"共 {payload.get('total_tasks')} 个任务。",
+        _block(
+            "阶段安排",
+            [
+                f"第 {stage.get('start_offset')}-{stage.get('end_offset')} 天｜"
+                f"{stage.get('name')}：{stage.get('focus')}"
+                for stage in stages
+            ],
+        ),
+        str(payload.get("strategy") or ""),
+        _block("注意事项", payload.get("notes") or []),
+        "需要把某个阶段继续拆成每日任务，直接告诉我阶段名称即可。",
+    )
+
+
+def narrate_task_breakdown(payload: dict[str, Any]) -> str:
+    """任务拆解清单的正文。"""
+
+    tasks = payload.get("tasks") or []
+    return _doc(
+        f"## 任务拆解：{payload.get('scope') or '当前阶段'}",
+        str(payload.get("summary") or ""),
+        _block(
+            "任务清单",
+            [
+                f"第 {task.get('day_offset')} 天｜{task.get('subject') or '通用'}｜"
+                f"{task.get('title')}（{task.get('duration_minutes')} 分钟，"
+                f"优先级 {task.get('priority')}）"
+                for task in tasks[:10]
+            ],
+        ),
+        _block("排期建议", payload.get("notes") or []),
+    )
+
+
+def narrate_tutoring(payload: dict[str, Any]) -> str:
+    """知识点讲解的正文：解题步骤与易错点必须原文出现。
+
+    这是阶段 1 的验收重点——旧实现里这两段会被摘要压掉，用户看不到。
+    """
+
+    steps = payload.get("steps") or []
+    pitfalls = payload.get("pitfalls") or []
+    return _doc(
+        f"## {payload.get('subject') or '知识点'}讲解",
+        str(payload.get("question_summary") or ""),
+        _block("解题步骤", [f"{index}. {step}" for index, step in enumerate(steps, start=1)]),
+        _block("易错点", [f"{index}. {item}" for index, item in enumerate(pitfalls, start=1)]),
+        _block("关键结论", payload.get("key_points") or []),
+        _block("自查问题", payload.get("followups") or []),
+        _block("配套练习", payload.get("related_practice") or []),
+    )
+
+
+def narrate_diagnosis(payload: dict[str, Any]) -> str:
+    """备考复盘诊断的正文。"""
+
+    risks = payload.get("risks") or []
+    return _doc(
+        "## 备考复盘诊断",
+        str(payload.get("summary") or ""),
+        _block("关键发现", payload.get("findings") or []),
+        _block(
+            "风险与对策",
+            [
+                f"[{risk.get('level')}] {risk.get('title')}：{risk.get('detail')}"
+                f"→ {risk.get('suggestion')}"
+                for risk in risks
+            ],
+        ),
+        _block("调整建议", payload.get("adjustments") or []),
+        str(payload.get("encouragement") or ""),
+    )
+
+
+def narrate_resource_plan(payload: dict[str, Any]) -> str:
+    """资料组合建议的正文。"""
+
+    items = payload.get("items") or []
+    return _doc(
+        "## 资料组合建议",
+        str(payload.get("summary") or ""),
+        _block(
+            "资料清单",
+            [
+                f"{item.get('subject') or '通用'}｜{item.get('stage')}｜"
+                f"{item.get('name')}：{item.get('usage')}"
+                for item in items[:12]
+            ],
+        ),
+        _block("使用建议", payload.get("tips") or []),
+    )
+
+
+def narrate_nudge(payload: dict[str, Any]) -> str:
+    """督促提醒的正文。"""
+
+    return _doc(
+        f"## {payload.get('title') or '今日提醒'}",
+        str(payload.get("content") or ""),
+        _block("现在就做", payload.get("actions") or []),
+        str(payload.get("streak_hint") or ""),
+    )
+
+
+def _target_of(op: dict[str, Any]) -> str:
+    """取一条修订操作里最能说明「改了什么」的那个字段。"""
+
+    for key in ("task_title", "title", "plan_title", "plan_goal"):
+        if op.get(key):
+            return str(op[key])
+    return "计划整体"
+
+
+def narrate_plan_revision(payload: dict[str, Any]) -> str:
+    """计划修订提案的正文。"""
+
+    ops = payload.get("ops") or []
+    return _doc(
+        "## 计划修订提案",
+        str(payload.get("summary") or ""),
+        _block(
+            "具体改动",
+            [
+                f"{op.get('action')}｜{_target_of(op)}"
+                f"（第 {op.get('day_offset')} 天，{op.get('shift_days')} 天）"
+                for op in ops
+            ],
+        ),
+        "确认无误后我才会真正写入计划表。",
+    )
+
+
+FAKE_BUILDERS: dict[str, PayloadBuilder] = {
     "plan_draft": build_plan_draft,
     "task_breakdown": build_task_breakdown,
     "tutoring": build_tutoring,
@@ -743,21 +1009,284 @@ OFFLINE_BUILDERS: dict[str, PayloadBuilder] = {
     "weekly_digest": build_weekly_digest,
     "plan_review": build_plan_review,
     "plan_revision": build_plan_revision,
-    "chat_summary": build_chat_summary,
 }
 
+NARRATIVE_BUILDERS: dict[str, NarrativeBuilder] = {
+    "plan_draft": narrate_plan_draft,
+    "task_breakdown": narrate_task_breakdown,
+    "tutoring": narrate_tutoring,
+    "diagnosis": narrate_diagnosis,
+    "resource_plan": narrate_resource_plan,
+    "nudge": narrate_nudge,
+    "plan_revision": narrate_plan_revision,
+}
 
-def supports(task: str) -> bool:
-    """是否支持该任务的离线生成。"""
+NARRATIVE_TASKS = frozenset(NARRATIVE_BUILDERS)
+"""会走双轨信封的任务：与 ``app.llm.tasks.SUBAGENT_TASKS`` 一一对应。"""
 
-    return task in OFFLINE_BUILDERS
+CHAT_AGENT_TASK = "chat_agent"
+
+FINAL_REPLY = "已根据你的诉求调度对应能力，结论见上。接下来建议先完成最近一个待办任务。"
+
+TOKEN_DELTA_CHARS = 12
+"""假模型的 token 分块粒度：真实提供方的切分不可预测，但必须真的分多块。"""
+
+REQUEST_LOG: list[tuple[str, list[BaseMessage]]] = []
+"""假模型收到的每一次请求，按调用顺序记录。
+
+给用例一个 spy 视角：断言「提示词里到底有什么」——例如多轮历史有没有真的
+被拼进消息列表，而不是只断言最终回答看起来对。
+"""
 
 
-def build_offline_payload(task: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
-    """生成离线结构化内容。"""
+def recorded_requests(task: str | None = None) -> list[list[BaseMessage]]:
+    """返回假模型收到的请求消息列表，可按任务过滤。"""
 
-    try:
-        builder = OFFLINE_BUILDERS[task]
-    except KeyError as exc:
-        raise KeyError(f"离线模式未实现任务 {task} 的内容生成") from exc
-    return builder(context or {})
+    return [messages for name, messages in REQUEST_LOG if task is None or name == task]
+
+
+def pick_agents(request: str) -> list[str]:
+    """按关键词挑选子智能体，等价于真实模型决定调哪些工具。"""
+
+    lowered = request.lower()
+    scores = {
+        intent: sum(1 for word in words if word in lowered)
+        for intent, words in INTENT_KEYWORDS.items()
+    }
+    best = max(scores, key=lambda key: scores[key])
+    return INTENT_AGENTS[best] if scores[best] else INTENT_AGENTS["chat"]
+
+
+def pick_tools(request: str) -> list[str]:
+    """按关键词返回工具名，与 ``TOOLS_BY_NAME`` 的键一致。"""
+
+    by_agent = {tool.agent: tool.name for tool in TOOLS_BY_NAME.values()}
+    names: list[str] = []
+    for agent in pick_agents(request):
+        name = by_agent.get(agent)
+        if name is not None and name not in names:
+            names.append(name)
+    return names
+
+
+# --------------------------------------------------------------------------
+# 假模型
+# --------------------------------------------------------------------------
+
+
+class StubEmbedder(BaseEmbedder):
+    """确定性哈希向量，仅测试使用。
+
+    采用 hashing trick：同一 token 恒映射到同一维度并带符号，
+    因此两段文本重叠越多、余弦相似度越高——CI 中的检索依然有意义，
+    而不是随机噪声。生产端只保留真实向量化实现，本类由 ``tests/fakes.py`` 承载。
+    """
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed_one(text) for text in texts]
+
+    def _embed_one(self, text: str) -> list[float]:
+        vector = [0.0] * self.dimension
+        for token in tokenize(text):
+            digest = token_hash(token)
+            index = digest % self.dimension
+            sign = 1.0 if (digest >> 63) & 1 == 0 else -1.0
+            vector[index] += sign
+        return normalize_vector(vector)
+
+
+class FakeChatModel(BaseChatModel):
+    """测试专用模型：工具调用与结构化产出都可预期。
+
+    ``task`` 与生产代码传给 ``build_chat_model`` 的标识一致，
+    因此同一个假模型可以覆盖聊天 Agent 与全部子智能体。
+    """
+
+    task: str = CHAT_AGENT_TASK
+
+    @property
+    def _llm_type(self) -> str:
+        return "kaoyan-fake"
+
+    def bind_tools(self, tools: Any, **kwargs: Any) -> "FakeChatModel":
+        """声明支持工具绑定；真实模型据此产出 tool_calls。"""
+
+        return self
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        return ChatResult(generations=[ChatGeneration(message=self._build_message(messages))])
+
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        """异步路径直接复用同步实现，保证结果确定且不依赖线程池。"""
+
+        return self._generate(messages, stop, None, **kwargs)
+
+    def _build_message(self, messages: list[BaseMessage]) -> AIMessage:
+        REQUEST_LOG.append((self.task, list(messages)))
+        if self.task != CHAT_AGENT_TASK:
+            return AIMessage(content=self._structured_reply(messages))
+        return self._chat_reply(messages)
+
+    async def _astream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: Any = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        """按固定粒度逐块吐出，模拟真实提供方的增量流。
+
+        若沿用基类「一次吐一整条」的兜底，连续 token 帧这条验收在测试里
+        永远会假通过，因此这里必须真的分多块。
+        """
+
+        message = self._build_message(messages)
+        text = message_text(message)
+
+        for start in range(0, len(text), TOKEN_DELTA_CHARS):
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content=text[start : start + TOKEN_DELTA_CHARS])
+            )
+
+        if not text:
+            # 工具轮没有正文，但 tool_calls 必须原样到达
+            yield ChatGenerationChunk(
+                message=AIMessageChunk(content="", tool_calls=message.tool_calls)
+            )
+
+    def _structured_reply(self, messages: list[BaseMessage]) -> str:
+        """子智能体任务：产出双轨信封的 JSON 文本。"""
+
+        builder = FAKE_BUILDERS.get(self.task)
+        if builder is None:  # pragma: no cover - 未登记任务说明测试写错了
+            raise KeyError(f"假模型未实现任务 {self.task} 的内容生成")
+
+        payload = builder(parse_prompt_context(messages))
+        narrate = NARRATIVE_BUILDERS.get(self.task)
+        if narrate is None:
+            # 不走双轨信封的任务（如计划评审）：直接给业务 Schema 本身
+            return json.dumps(payload, ensure_ascii=False)
+        return json.dumps({"narrative": narrate(payload), "data": payload}, ensure_ascii=False)
+
+    def _chat_reply(self, messages: list[BaseMessage]) -> AIMessage:
+        """聊天 Agent：先按关键词派单，拿到工具结果后把正文整合成最终回答。
+
+        真实模型在读到 ``ToolMessage`` 里的子智能体正文后，会把要点原样写进回答；
+        假模型照做，阶段 1「正文不被摘要压掉」这条验收才在测试中有意义。
+        """
+
+        bodies = [
+            message_text(item).strip()
+            for item in messages
+            if isinstance(item, ToolMessage) and message_text(item).strip()
+        ]
+        if bodies:
+            return AIMessage(
+                content="已根据你的诉求调度对应能力，以下是完整结论：\n\n"
+                + "\n\n".join(bodies)
+            )
+
+        # 只取【用户输入】那一段做判定：整份提示词里满是「备考」「计划」这类
+        # 背景词汇，拿全文匹配会让关键词路由彻底失真。
+        request = parse_prompt_context(messages)["request"]
+        names = pick_tools(request)
+        if not names:
+            return AIMessage(content=FINAL_REPLY)
+
+        return AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": name,
+                    "args": {"instruction": request},
+                    "id": f"call_{index}",
+                }
+                for index, name in enumerate(names)
+            ],
+        )
+
+
+def install_fake_model(monkeypatch: Any) -> None:
+    """把模型工厂替换成假模型。
+
+    ``build_chat_model`` 被两处按值引用，因此两处都要打补丁：
+    工厂自身（供 ``invoke_agent_task`` 使用）与聊天 Agent 模块。
+    """
+
+    REQUEST_LOG.clear()
+
+    def factory(
+        task: str, provider: str | None = None, **kwargs: Any
+    ) -> FakeChatModel:
+        return FakeChatModel(task=task)
+
+    import app.llm.factory as factory_module
+    import app.workflows.chat_agent as chat_agent_module
+
+    monkeypatch.setattr(factory_module, "build_chat_model", factory)
+    monkeypatch.setattr(chat_agent_module, "build_chat_model", factory)
+
+
+# 知识点：Checkpointer —— 内存检查点与 SQLite/PostgreSQL 实现在「按 thread_id 存取状态」
+#   这一点上等价，替换掉它就能在用例之间彻底隔离中断状态（第5章 LangGraph·人工确认）
+def install_fake_checkpointer(monkeypatch: Any) -> None:
+    """把工作流检查点替换成内存实现。
+
+    每个用例一份新实例：会话 ID 会从 1 重新开始，用真实文件型检查点的话，
+    上一个用例遗留的中断会被下一个用例的恢复请求读到。
+    """
+
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    import app.workflows.checkpoint as checkpoint_module
+
+    monkeypatch.setattr(checkpoint_module, "_saver", InMemorySaver(), raising=False)
+
+
+def install_fake_embedder(monkeypatch: Any) -> None:
+    """只替换向量化最外层的网络调用，返回确定性哈希向量。
+
+    刻意不去替换 ``build_embedder`` 工厂：配置校验、提供方选择、批量切分
+    这些真实逻辑全部保留，因此「配置不全时应报错」这类契约在测试中依然成立。
+    """
+
+    import app.knowledge.embeddings as embeddings_module
+
+    async def fake_embed(self: Any, texts: list[str]) -> list[list[float]]:
+        return await StubEmbedder(self.dimension).embed(texts)
+
+    monkeypatch.setattr(embeddings_module.OpenAICompatEmbedder, "embed", fake_embed)
+
+
+# --------------------------------------------------------------------------
+# 领域夹具
+# --------------------------------------------------------------------------
+
+
+def review_context(learner: LearnerSnapshot, draft: PlanDraft) -> dict[str, Any]:
+    """构造计划评审所需的上下文。"""
+
+    durations = [task.duration_minutes for stage in draft.stages for task in stage.tasks] or [0]
+    return {
+        "subjects": learner.subject_names,
+        "weak_subjects": learner.weak_subjects,
+        "days_left": learner.days_left,
+        "daily_hours": learner.daily_hours,
+        "attention_span": learner.attention_span,
+        "horizon_days": draft.horizon_days,
+        "stage_count": len(draft.stages),
+        "task_count": draft.total_tasks,
+        "max_task_minutes": max(durations),
+    }

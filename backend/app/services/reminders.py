@@ -6,7 +6,8 @@
 - idle：连续未学习预警；
 - weekly：周报复盘。
 
-生成环节统一走 ``app.agents.compose_nudge``，因此提示词与离线兜底只有一份实现。
+生成环节统一走 ``app.agents.compose_nudge`` / ``compose_weekly_digest``，
+提示词只有一份实现；定时链路只要结构化结果，因此丢掉双轨信封里的正文一轨。
 """
 
 from dataclasses import dataclass, field

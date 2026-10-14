@@ -73,7 +73,13 @@ def extract_usage(message: BaseMessage) -> tuple[int, int]:
     return int(usage.get("input_tokens", 0) or 0), int(usage.get("output_tokens", 0) or 0)
 
 
-def _message_text(message: BaseMessage) -> str:
+def message_text(message: BaseMessage) -> str:
+    """把模型消息的内容压平成纯文本。
+
+    不同提供方返回的 ``content`` 可能是字符串、也可能是分块列表，
+    因此读取模型正文一律走这里，避免各处各写一遍。
+    """
+
     content = message.content
     if isinstance(content, str):
         return content
@@ -115,7 +121,7 @@ async def invoke_structured(
             stats.output_tokens += output_tokens
 
         try:
-            payload = extract_json_object(_message_text(response))
+            payload = extract_json_object(message_text(response))
             return schema.model_validate(payload)
         except (StructuredOutputError, ValidationError) as exc:
             last_error = exc

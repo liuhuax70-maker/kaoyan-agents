@@ -11,11 +11,10 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 AppEnv = Literal["development", "testing", "production"]
-LLMProviderName = Literal["stub", "deepseek", "ollama", "openai"]
+LLMProviderName = Literal["deepseek", "ollama", "openai"]
 VectorBackend = Literal["milvus", "local"]
 
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
-    "stub": {"api_key": "", "base_url": "", "model": "stub"},
     "deepseek": {
         "api_key": "",
         "base_url": "https://api.deepseek.com/v1",
@@ -117,10 +116,10 @@ class EmbeddingSection(BaseModel):
     """向量化配置。
 
     DeepSeek 不提供 embedding 接口，因此向量化单独配置：
-    stub 用于离线与测试，ollama（bge-m3）用于本地真实语义检索。
+    本地开发用 ollama（bge-m3），线上可切 openai 或 dashscope。
     """
 
-    provider: Literal["stub", "ollama", "openai", "dashscope"] = "stub"
+    provider: Literal["ollama", "openai", "dashscope"] = "ollama"
     dimension: int = 1024
     batch_size: int = 16
     timeout_seconds: float = 60.0
@@ -153,21 +152,19 @@ class EmbeddingSection(BaseModel):
                 "base_url": self.openai_base_url,
                 "api_key": self.openai_api_key,
             }
-        if self.provider == "dashscope":
-            return {
-                "provider": "dashscope",
-                "model": self.dashscope_model,
-                "base_url": self.dashscope_base_url,
-                "api_key": self.dashscope_api_key,
-            }
-        return {"provider": "stub", "model": "stub-hash", "base_url": "", "api_key": ""}
+        return {
+            "provider": "dashscope",
+            "model": self.dashscope_model,
+            "base_url": self.dashscope_base_url,
+            "api_key": self.dashscope_api_key,
+        }
 
     @property
     def is_ready(self) -> bool:
         """当前提供方是否具备可用配置。"""
 
         config = self.resolved()
-        if config["provider"] in {"stub", "ollama"}:
+        if config["provider"] == "ollama":
             return True
         return bool(config["api_key"])
 
@@ -187,7 +184,7 @@ class KnowledgeSection(BaseModel):
 class LLMSection(BaseModel):
     """大模型配置，统一走 OpenAI 兼容适配层。"""
 
-    default_provider: LLMProviderName = "stub"
+    default_provider: LLMProviderName = "deepseek"
     temperature: float = 0.3
     max_tokens: int = 2048
     timeout_seconds: float = 60.0
@@ -222,8 +219,6 @@ class LLMSection(BaseModel):
                 "base_url": self.openai_base_url,
                 "model": self.openai_model,
             }
-        elif provider == "stub":
-            overrides = {}
         else:
             raise ValueError(f"不支持的大模型提供方：{provider}")
 
@@ -235,8 +230,6 @@ class LLMSection(BaseModel):
         """判断指定提供方是否具备可用凭据。"""
 
         config = self.provider_config(name)
-        if config["provider"] == "stub":
-            return True
         if config["provider"] == "ollama":
             return bool(config["base_url"])
         return bool(config["api_key"])
@@ -260,10 +253,19 @@ class WorkflowSection(BaseModel):
     """多智能体协作配置。"""
 
     enable_plan_review: bool = True
-    """生成计划后是否自动触发评审协作。"""
+    """生成计划后是否自动触发评审节点。"""
 
-    plan_review_process: Literal["crew", "local"] = "crew"
-    """评审执行方式：crew 走 CrewAI 多角色协作，local 走单智能体离线评审。"""
+    history_limit: int = Field(default=20, ge=0, le=200)
+    """多轮对话回溯的历史消息条数上限，一问一答算两条。"""
+
+    history_char_budget: int = Field(default=4000, ge=0)
+    """历史消息进入提示词的字符预算，超出时从最旧的一轮开始丢。"""
+
+    require_plan_confirmation: bool = True
+    """计划与计划修订落库前是否暂停，等用户确认后才写库。"""
+
+    checkpoint_path: str = "./data/langgraph-checkpoints.db"
+    """SQLite 检查点库的落盘位置；生产走 PostgreSQL 时该配置不生效。"""
 
 
 class ObservabilitySection(BaseModel):

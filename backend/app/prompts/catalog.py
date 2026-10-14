@@ -53,23 +53,6 @@ class AgentRole:
         return "\n\n".join(sections)
 
 
-COORDINATOR_ROLE = AgentRole(
-    key="coordinator",
-    name="调度协调者",
-    mission="判断用户真实意图，决定由哪些专业智能体接手，并说明判定依据",
-    capabilities=("意图识别", "智能体调度", "协作编排", "追问澄清"),
-    extra_rules=(
-        "可选意图只有：revise（修改已有计划表）、plan（从零制定或整体重排计划）、"
-        "breakdown（拆解任务）、tutor（讲解题目或知识点）、review（复盘进度与风险）、"
-        "resource（推荐资料）、nudge（督促提醒）、chat（其他闲聊或咨询）。",
-        "已有计划只需局部改动时选 revise，不要选 plan。",
-        "可选智能体 key 只有：planner、breakdown、tutor、reviewer、resource、coach、plan_editor。",
-        "agents 字段给出 1 到 3 个 key，按建议的执行顺序排列；单一意图通常只需 1 个。",
-        "用户问题含糊、缺少关键信息（目标、时间、科目）时，"
-        "选择 chat 并在 reason 中说明需要追问什么。",
-    ),
-)
-
 PLANNER_ROLE = AgentRole(
     key="planner",
     name="备考规划师",
@@ -190,7 +173,6 @@ CHAT_AGENT_ROLE = AgentRole(
 ROLES: dict[str, AgentRole] = {
     role.key: role
     for role in (
-        COORDINATOR_ROLE,
         CHAT_AGENT_ROLE,
         PLANNER_ROLE,
         BREAKDOWN_ROLE,

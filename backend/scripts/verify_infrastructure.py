@@ -21,7 +21,7 @@ from app.knowledge import build_knowledge_base
 from app.knowledge.types import Document
 
 # 仅用于打印真实检索的相似度，不作为断言：
-# 相似度高低取决于 embedding 实现，stub 向量化不具备语义能力。
+# 相似度高低取决于 embedding 实现，需与 EMBEDDING__PROVIDER 实际配置一致。
 PROBE_QUERIES = ("英语真题怎么刷", "数学极限总出错怎么办")
 ROUNDTRIP_ID = "verify::roundtrip"
 

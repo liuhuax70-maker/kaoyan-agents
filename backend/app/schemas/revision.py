@@ -1,4 +1,4 @@
-"""计划修订与对话总结的结构化输出。
+"""计划修订的结构化输出。
 
 聊天 Agent 通过工具修改计划表时，子智能体产出的是「修订指令」而不是直接写库：
 图谱保持无副作用，落库统一由服务层完成。
@@ -83,11 +83,3 @@ class PlanRevision(BaseModel):
 
     summary: str = Field(default="", max_length=300, description="改了什么、为什么改")
     ops: list[PlanRevisionOp] = Field(default_factory=list, description="按顺序执行的操作")
-
-
-class ChatSummary(BaseModel):
-    """聊天 Agent 在调完工具后给出的统一总结。"""
-
-    summary: str = Field(min_length=2, max_length=800, description="面向用户的总结正文")
-    key_points: list[str] = Field(default_factory=list, description="要点，2 到 5 条")
-    next_actions: list[str] = Field(default_factory=list, description="建议用户接下来做的事")

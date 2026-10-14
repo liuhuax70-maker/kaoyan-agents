@@ -10,12 +10,10 @@ from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from app.core.errors import PromptError
-from app.llm.tasks import AgentTask, schema_for
+from app.llm.tasks import AgentTask, output_model_for
 from app.prompts.catalog import (
     BREAKDOWN_ROLE,
-    CHAT_AGENT_ROLE,
     COACH_ROLE,
-    COORDINATOR_ROLE,
     PLAN_EDITOR_ROLE,
     PLANNER_ROLE,
     RESOURCE_ROLE,
@@ -24,16 +22,6 @@ from app.prompts.catalog import (
 )
 from app.prompts.catalog import TUTOR_ROLE as TUTOR_ROLE_DEF
 from app.prompts.context import render_output_contract
-
-INTENT_USER_TEMPLATE = """【考生概况】
-{learner_context}
-
-【用户输入】
-{request}
-
-【输出结构】
-{output_contract}
-"""
 
 PLAN_USER_TEMPLATE = """【考生画像】
 {learner_context}
@@ -149,20 +137,6 @@ REVISION_USER_TEMPLATE = """【考生画像】
 {output_contract}
 """
 
-SUMMARY_USER_TEMPLATE = """【考生画像】
-{learner_context}
-
-【用户诉求】
-{request}
-
-【子智能体执行结果】
-{tool_results}
-
-【输出结构】
-{output_contract}
-"""
-
-
 @dataclass(frozen=True, slots=True)
 class PromptSpec:
     """任务与提示词的绑定关系。"""
@@ -181,12 +155,6 @@ def _make(role: AgentRole, user_template: str) -> ChatPromptTemplate:
 
 
 PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
-    AgentTask.INTENT_ROUTING: PromptSpec(
-        task=AgentTask.INTENT_ROUTING,
-        role=COORDINATOR_ROLE,
-        template=_make(COORDINATOR_ROLE, INTENT_USER_TEMPLATE),
-        required_variables=("learner_context", "request"),
-    ),
     AgentTask.PLAN_DRAFT: PromptSpec(
         task=AgentTask.PLAN_DRAFT,
         role=PLANNER_ROLE,
@@ -241,12 +209,6 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         template=_make(PLAN_EDITOR_ROLE, REVISION_USER_TEMPLATE),
         required_variables=("learner_context", "plan_context", "request"),
     ),
-    AgentTask.CHAT_SUMMARY: PromptSpec(
-        task=AgentTask.CHAT_SUMMARY,
-        role=CHAT_AGENT_ROLE,
-        template=_make(CHAT_AGENT_ROLE, SUMMARY_USER_TEMPLATE),
-        required_variables=("learner_context", "request", "tool_results"),
-    ),
 }
 
 
@@ -267,7 +229,9 @@ def build_messages(task: AgentTask, **variables: str) -> list[BaseMessage]:
     if missing:
         raise PromptError(f"任务 {task} 缺少必需变量：{'、'.join(missing)}")
 
-    payload = {**variables, "output_contract": render_output_contract(schema_for(task))}
+    # 契约取的是「实际会被解析的输出模型」：子智能体任务是套了双轨信封的那个，
+    # 因此模型被要求输出的结构，与随后用来解析的结构，永远是同一个
+    payload = {**variables, "output_contract": render_output_contract(output_model_for(task))}
     return spec.template.format_messages(**payload)
 
 

@@ -236,14 +236,13 @@ async def test_workflow_and_model_calls_are_traced(monkeypatch) -> None:
     assert len(client.spans) == 1
     assert client.spans[0].name == "multi-agent.workflow"
 
-    # 意图识别 + 规划 + 拆解，至少三次模型调用被记录
-    assert len(client.generations) >= 3
+    # 聊天 Agent 的调度 + 规划 + 拆解：不再有「统一总结」那一次额外调用
+    assert len(client.generations) >= 2
     traced_tasks = {span.name for span in client.generations}
-    assert "intent_routing" in traced_tasks
-    assert "plan_draft" in traced_tasks
+    assert {"plan_draft", "task_breakdown"} <= traced_tasks
 
     assert client.trace_updates[0]["session_id"] == "42"
-    assert client.trace_updates[-1]["metadata"]["intent"] == "plan"
+    assert "planner" in client.trace_updates[-1]["metadata"]["agents"]
     assert all(span.entered is False for span in client.spans)
 
 

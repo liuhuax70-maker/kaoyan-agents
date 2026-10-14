@@ -1,20 +1,15 @@
 """单智能体能力层。
 
-与 ``app.crews`` 的区别：
-- 这里封装「一次模型调用即可完成」的能力（如督促文案、周报），供工作流与定时任务复用；
-- ``app.crews`` 封装需要多角色对抗与多轮协商的 CrewAI 协作。
+这里封装「一次模型调用即可完成」的能力（如督促文案、周报），
+供工作流节点与 Celery 定时任务复用。
+
+需要多角色协作的场景一律由图节点编排，不再引入第二个编排框架。
 """
 
-from app.agents.nudge import (
-    compose_nudge,
-    compose_weekly_digest,
-    digest_stub_context,
-    nudge_stub_context,
-)
+from app.agents.nudge import compose_nudge, compose_nudge_reply, compose_weekly_digest
 
 __all__ = [
     "compose_nudge",
+    "compose_nudge_reply",
     "compose_weekly_digest",
-    "digest_stub_context",
-    "nudge_stub_context",
 ]

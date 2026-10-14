@@ -4,8 +4,15 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import SessionDep
-from app.schemas.api import ChatMessageRead, ChatRequest, ChatResponse, ConversationRead
+from app.schemas.api import (
+    ChatConfirmRequest,
+    ChatMessageRead,
+    ChatRequest,
+    ChatResponse,
+    ConversationRead,
+)
 from app.services.conversations import (
+    confirm_pending_plan,
     handle_chat,
     list_conversations,
     load_conversation,
@@ -38,6 +45,22 @@ async def chat_stream(payload: ChatRequest) -> StreamingResponse:
     return StreamingResponse(
         stream_chat(payload), media_type="text/event-stream", headers=SSE_HEADERS
     )
+
+
+@router.post("/confirm", response_model=ChatResponse, summary="确认或驳回待落库的计划")
+async def chat_confirm(payload: ChatConfirmRequest, session: SessionDep) -> ChatResponse:
+    """恢复被人工确认暂停的那一轮对话。
+
+    ``approve=true`` 才把计划写入数据库；``approve=false`` 则本次不写任何计划，
+    并把用户的补充意见记进回复里。会话没有待确认内容时返回 404。
+    """
+
+    response = await confirm_pending_plan(
+        session, payload.conversation_id, payload.approve, payload.feedback
+    )
+    if response is None:
+        raise HTTPException(status_code=404, detail="该会话没有待确认的计划")
+    return response
 
 
 @router.get(

@@ -21,7 +21,10 @@ dependencies = [
   "langchain-core>=0.3.0,<2.0.0",
   "langchain-openai>=0.2.0,<2.0.0",
   "langgraph>=0.2.0,<2.0.0",
-  "crewai>=1.0.0,<2.0.0",
+  "langgraph-checkpoint-sqlite>=2.0.0,<4.0.0",
+  "langgraph-checkpoint-postgres>=2.0.0,<4.0.0",
+  # 检查点走 PostgreSQL 时用 psycopg；要 binary 变体，否则要宿主机自带 libpq
+  "psycopg[binary]>=3.2.0,<4.0.0",
   "pymilvus>=2.4.9,<3.0.0",
   "celery[redis]>=5.4.0,<6.0.0",
   "langfuse>=3.0.0,<4.0.0",

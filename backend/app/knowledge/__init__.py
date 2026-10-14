@@ -11,7 +11,6 @@ from app.knowledge.corpus import builtin_documents
 from app.knowledge.embeddings import (
     BaseEmbedder,
     OpenAICompatEmbedder,
-    StubEmbedder,
     build_embedder,
 )
 from app.knowledge.stores import (
@@ -32,7 +31,6 @@ __all__ = [
     "MilvusVectorStore",
     "OpenAICompatEmbedder",
     "RetrievedChunk",
-    "StubEmbedder",
     "VectorRecord",
     "build_embedder",
     "build_knowledge_base",

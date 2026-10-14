@@ -34,6 +34,7 @@ async def generate_plan(payload: PlanGenerateRequest, session: SessionDep) -> Ch
         message=f"帮我制定学习计划：{goal}",
         provider=payload.provider,
         enable_review=payload.enable_review,
+        confirm_commit=payload.confirm_commit,
     )
 
     response = await handle_chat(session, request)

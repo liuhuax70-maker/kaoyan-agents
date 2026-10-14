@@ -45,7 +45,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     application = FastAPI(
         title="考研考证学习规划与督促系统",
-        description="基于 LangGraph + CrewAI 的多智能体学习规划与督促服务",
+        description="基于 LangGraph 多智能体的考研与考证学习规划、答疑与督促服务",
         version=__version__,
         lifespan=lifespan,
         docs_url="/docs",

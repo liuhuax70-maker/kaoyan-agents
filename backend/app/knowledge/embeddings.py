@@ -1,8 +1,13 @@
+# 知识点：Embedding 与对话模型分离 —— DeepSeek 不提供 embedding 接口，
+#   因此向量化是一套独立配置；三家提供方同样共用 /embeddings 协议，
+#   差异同样只在 base_url 与 model 名（第4章 RAG Agent·构建知识库）
 """向量化适配层。
 
 DeepSeek 没有 embedding 接口，因此向量化单独配置：
-- stub：确定性哈希向量，离线可用，保证无网络也能跑通全流程与测试；
-- ollama / openai / dashscope：走 OpenAI 兼容的 /embeddings 协议。
+ollama / openai / dashscope 三家共用 OpenAI 兼容的 /embeddings 协议，
+差异只在 base_url 与 model 名，因此适配成本集中在配置而不是代码。
+
+测试用的确定性假向量化实现在 ``tests/fakes.py``，不进生产包。
 """
 
 from abc import ABC, abstractmethod
@@ -12,11 +17,9 @@ import httpx
 from app.core.config import EmbeddingSection, Settings, get_settings
 from app.core.errors import ConfigurationError
 from app.core.logging import get_logger
-from app.knowledge.text import normalize_vector, token_hash, tokenize
+from app.knowledge.text import normalize_vector
 
 logger = get_logger(__name__)
-
-STUB_MODEL = "stub-hash"
 
 
 class BaseEmbedder(ABC):
@@ -40,27 +43,6 @@ class BaseEmbedder(ABC):
 
         vectors = await self.embed([text])
         return vectors[0] if vectors else [0.0] * self.dimension
-
-
-class StubEmbedder(BaseEmbedder):
-    """确定性哈希向量。
-
-    采用 hashing trick：同一 token 恒映射到同一维度并带符号，
-    因此两段文本重叠越多、余弦相似度越高——离线状态下的检索依然有意义，
-    而不是随机噪声。
-    """
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        return [self._embed_one(text) for text in texts]
-
-    def _embed_one(self, text: str) -> list[float]:
-        vector = [0.0] * self.dimension
-        for token in tokenize(text):
-            digest = token_hash(token)
-            index = digest % self.dimension
-            sign = 1.0 if (digest >> 63) & 1 == 0 else -1.0
-            vector[index] += sign
-        return normalize_vector(vector)
 
 
 class OpenAICompatEmbedder(BaseEmbedder):
@@ -123,13 +105,8 @@ def build_embedder(settings: Settings | None = None) -> BaseEmbedder:
     section: EmbeddingSection = resolved.embedding
     config = section.resolved()
 
-    if config["provider"] == "stub":
-        return StubEmbedder(section.dimension)
-
     if not section.is_ready:
-        raise ConfigurationError(
-            f"向量化提供方 {config['provider']} 缺少密钥配置，请检查 .env 或改用 stub"
-        )
+        raise ConfigurationError(f"向量化提供方 {config['provider']} 缺少密钥配置，请检查 .env")
 
     return OpenAICompatEmbedder(
         section.dimension,

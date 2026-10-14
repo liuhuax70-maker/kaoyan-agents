@@ -9,7 +9,6 @@ from app.knowledge import (
     LocalVectorStore,
     MilvusVectorStore,
     RetrievedChunk,
-    StubEmbedder,
     build_vector_store,
     builtin_documents,
     chunk_text,
@@ -19,11 +18,12 @@ from app.knowledge import (
     tokenize,
 )
 from app.prompts import render_retrieved
+from tests.fakes import StubEmbedder
 
 
 def _settings(dimension: int = 256, **knowledge: object) -> Settings:
     return Settings(
-        embedding={"provider": "stub", "dimension": dimension},
+        embedding={"provider": "ollama", "dimension": dimension},
         knowledge={"chunk_size": 320, "chunk_overlap": 64, "top_k": 3, **knowledge},
     )
 
@@ -63,7 +63,7 @@ def test_cosine_similarity_handles_mismatched_length() -> None:
 
 
 async def test_stub_embedder_is_deterministic_and_semantic() -> None:
-    """离线哈希向量必须稳定，且文本越接近相似度越高。"""
+    """测试用哈希向量必须稳定，且文本越接近相似度越高。"""
 
     embedder = StubEmbedder(512)
     math = await embedder.embed_one("数学要保证计算准确率，再追求解题速度")

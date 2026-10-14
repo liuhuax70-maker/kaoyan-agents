@@ -1,47 +1,33 @@
 """督促提醒与周报的单智能体能力。
 
 工作流节点与 Celery 定时任务都需要生成督促文案，
-因此抽成独立能力层，避免两处重复维护提示词与离线上下文。
+因此抽成独立能力层，避免两处重复维护提示词。
+
+同一个 NUDGE 任务有两种消费方式：聊天 Agent 派发时既要正文也要结构化数据，
+定时提醒只需要结构化的 ``NudgeMessage``。因此以 ``compose_nudge_reply`` 为主实现，
+``compose_nudge`` 只是丢掉正文的薄封装。
 """
 
-from typing import Any
-
-from app.llm import AgentTask, invoke_agent_task
+# 知识点：结构化输出的双轨信封 —— 同一个任务被两条链路消费时，主实现产出「正文 + 数据」，
+#   只取数据的调用方做一次解包，避免为两条链路各写一套提示词（第2章 LangChain核心组件·结构化输出）
+from app.llm import AgentTask, invoke_agent_task, invoke_subagent_task
 from app.prompts import build_messages, render_learner, render_plan, render_reminder
-from app.schemas import (
-    LearnerSnapshot,
-    NudgeMessage,
-    PlanSnapshot,
-    ReminderSnapshot,
-    WeeklyDigest,
-)
+from app.schemas import LearnerSnapshot, NudgeMessage, PlanSnapshot, ReminderSnapshot, WeeklyDigest
 
 
-def nudge_stub_context(
-    learner: LearnerSnapshot, reminder: ReminderSnapshot
-) -> dict[str, Any]:
-    """离线桩生成督促文案所需的上下文。"""
+async def compose_nudge_reply(
+    learner: LearnerSnapshot,
+    reminder: ReminderSnapshot,
+    provider: str | None = None,
+) -> tuple[str, NudgeMessage]:
+    """生成督促提醒，返回 ``(面向用户的正文, 结构化提醒)``。"""
 
-    return {
-        "self_discipline": learner.self_discipline,
-        "days_left": learner.days_left,
-        "idle_days": reminder.idle_days,
-        "due_tasks": list(reminder.due_tasks),
-        "overdue_tasks": list(reminder.overdue_tasks),
-        "completion_rate": reminder.completion_rate,
-    }
-
-
-def digest_stub_context(learner: LearnerSnapshot) -> dict[str, Any]:
-    """离线桩生成周报所需的上下文。"""
-
-    progress = learner.progress
-    return {
-        "completion_rate": progress.completion_rate,
-        "done_tasks": progress.done_tasks,
-        "total_tasks": progress.total_tasks,
-        "recent_minutes": progress.recent_minutes,
-    }
+    messages = build_messages(
+        AgentTask.NUDGE,
+        learner_context=render_learner(learner),
+        reminder_context=render_reminder(reminder),
+    )
+    return await invoke_subagent_task(AgentTask.NUDGE, messages, NudgeMessage, provider=provider)
 
 
 async def compose_nudge(
@@ -49,20 +35,10 @@ async def compose_nudge(
     reminder: ReminderSnapshot,
     provider: str | None = None,
 ) -> NudgeMessage:
-    """生成一条有分寸的督促提醒。"""
+    """生成一条有分寸的督促提醒（定时提醒链路，只要结构化结果）。"""
 
-    messages = build_messages(
-        AgentTask.NUDGE,
-        learner_context=render_learner(learner),
-        reminder_context=render_reminder(reminder),
-    )
-    return await invoke_agent_task(
-        AgentTask.NUDGE.value,
-        messages,
-        NudgeMessage,
-        provider=provider,
-        stub_context=nudge_stub_context(learner, reminder),
-    )
+    _, message = await compose_nudge_reply(learner, reminder, provider)
+    return message
 
 
 async def compose_weekly_digest(
@@ -78,9 +54,5 @@ async def compose_weekly_digest(
         plan_context=render_plan(plan),
     )
     return await invoke_agent_task(
-        AgentTask.WEEKLY_DIGEST.value,
-        messages,
-        WeeklyDigest,
-        provider=provider,
-        stub_context=digest_stub_context(learner),
+        AgentTask.WEEKLY_DIGEST.value, messages, WeeklyDigest, provider=provider
     )

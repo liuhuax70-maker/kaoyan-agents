@@ -3,6 +3,7 @@
 覆盖完整业务闭环：创建用户 → 建目标 → 生成计划 → 打卡 → 看板。
 """
 
+import json
 from datetime import date, timedelta
 from typing import Any
 
@@ -10,6 +11,8 @@ import pytest
 from httpx import AsyncClient
 
 from app.knowledge import Document, get_knowledge_base
+from app.workflows.chat_agent import CHAT_AGENT_TASK
+from tests.fakes import message_text, recorded_requests
 
 TODAY = date.today()
 
@@ -179,7 +182,13 @@ async def test_generate_plan_persists_plan_and_tasks(client: AsyncClient) -> Non
     assert sum(len(stage["tasks"]) for stage in detail["stages"]) > 0
 
 
-async def test_chat_routes_intent_and_keeps_conversation(client: AsyncClient) -> None:
+async def test_chat_routes_to_tutor_and_keeps_conversation(client: AsyncClient) -> None:
+    """路由到答疑讲师这条事实，现在由 ``tool_calls`` 承载。
+
+    ``intent`` 是 Orchestrator 时代的字段，取的是首个工具的智能体标识 —— 与
+    ``tool_calls[0]`` 恒等，因此已删除；断言改到权威来源上，测的还是同一件事。
+    """
+
     user_id = await _create_user(client, username="chat_owner")
     await _create_target(client, user_id)
 
@@ -188,7 +197,8 @@ async def test_chat_routes_intent_and_keeps_conversation(client: AsyncClient) ->
     )
     assert first.status_code == 200, first.text
     body = first.json()
-    assert body["intent"] == "tutor"
+    assert body["tool_calls"], "答疑类提问应当调起子智能体"
+    assert body["tool_calls"][0]["agent"] == "tutor"
     assert body["outputs"]
     assert body["reply"]
 
@@ -206,6 +216,165 @@ async def test_chat_routes_intent_and_keeps_conversation(client: AsyncClient) ->
     detail = await client.get(f"/api/chat/conversations/{body['conversation_id']}")
     assert detail.status_code == 200
     assert detail.json()["message_count"] == 4
+
+
+async def test_followup_chat_carries_previous_answer(client: AsyncClient) -> None:
+    """阶段 2 验收：同一会话追问时，上一轮的问与答确实进了模型的输入。"""
+
+    user_id = await _create_user(client, username="memory_owner")
+    await _create_target(client, user_id)
+
+    first = (
+        await client.post(
+            "/api/chat", json={"user_id": user_id, "message": "数学极限为什么算不对"}
+        )
+    ).json()
+    assert first["reply"]
+
+    second = await client.post(
+        "/api/chat",
+        json={
+            "user_id": user_id,
+            "message": "第二点再展开",
+            "conversation_id": first["conversation_id"],
+        },
+    )
+    assert second.status_code == 200, second.text
+
+    messages = recorded_requests(CHAT_AGENT_TASK)[-1]
+    contents = [message_text(item) for item in messages]
+    # contents[0] 是 system，[1] 是上一轮提问，[2] 是上一轮回答，其后是本次追问
+    assert "数学极限为什么算不对" in contents[1]
+    assert contents[2] == first["reply"]
+    assert any("第二点再展开" in text for text in contents[3:])
+
+
+async def test_plan_generation_waits_for_confirmation(client: AsyncClient) -> None:
+    """阶段 4 验收：生成计划后流程暂停，用户确认之前数据库里没有任何计划。"""
+
+    user_id = await _create_user(client, username="confirm_owner")
+    await _create_target(client, user_id)
+
+    pending = await client.post(
+        "/api/plans/generate", json={"user_id": user_id, "confirm_commit": True}
+    )
+    assert pending.status_code == 200, pending.text
+
+    body = pending.json()
+    assert body["plan_id"] is None, "还没确认就不该有 plan_id"
+    assert body["reply"], "暂停也要先把聊天 Agent 的回答交给用户"
+
+    confirmation = body["confirmation"]
+    assert confirmation["kind"] == "plan_draft"
+    assert confirmation["thread_id"], "没有 thread_id 就无从恢复"
+    assert confirmation["items"], "用户要能逐条核对将要落库的计划"
+
+    tasks = (await client.get("/api/tasks", params={"user_id": user_id})).json()
+    assert tasks == [], "确认之前不应写入任何任务"
+
+    conversation = (
+        await client.get(f"/api/chat/conversations/{body['conversation_id']}")
+    ).json()
+    assert conversation["status"] == "awaiting_confirmation"
+
+    confirmed = await client.post(
+        "/api/chat/confirm",
+        json={"conversation_id": body["conversation_id"], "approve": True},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["plan_id"] is not None
+    assert confirmed.json()["confirmation"] is None
+    assert "已确认" in confirmed.json()["reply"]
+
+    assert (await client.get("/api/tasks", params={"user_id": user_id})).json()
+    assert (
+        await client.get(f"/api/chat/conversations/{body['conversation_id']}")
+    ).json()["status"] == "active"
+
+
+async def test_rejected_plan_is_never_written(client: AsyncClient) -> None:
+    """驳回之后数据库保持原样，且同一个确认闸门不会二次放行。"""
+
+    user_id = await _create_user(client, username="reject_owner")
+    await _create_target(client, user_id)
+
+    body = (
+        await client.post(
+            "/api/plans/generate", json={"user_id": user_id, "confirm_commit": True}
+        )
+    ).json()
+
+    rejected = await client.post(
+        "/api/chat/confirm",
+        json={
+            "conversation_id": body["conversation_id"],
+            "approve": False,
+            "feedback": "每天安排的时间太长",
+        },
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["plan_id"] is None
+    assert "每天安排的时间太长" in rejected.json()["reply"]
+
+    assert (await client.get("/api/tasks", params={"user_id": user_id})).json() == []
+
+    again = await client.post(
+        "/api/chat/confirm",
+        json={"conversation_id": body["conversation_id"], "approve": True},
+    )
+    assert again.status_code == 404, "已经答复过的会话不应被重复恢复"
+
+
+async def test_confirm_without_a_pending_plan_returns_not_found(client: AsyncClient) -> None:
+    user_id = await _create_user(client, username="no_pending")
+    await _create_target(client, user_id)
+
+    body = (
+        await client.post(
+            "/api/plans/generate", json={"user_id": user_id, "confirm_commit": True}
+        )
+    ).json()
+    conversation_id = body["conversation_id"]
+
+    # 先正常确认一次，闸门随之合上
+    assert (
+        await client.post(
+            "/api/chat/confirm", json={"conversation_id": conversation_id, "approve": True}
+        )
+    ).status_code == 200
+
+    missing = await client.post(
+        "/api/chat/confirm", json={"conversation_id": conversation_id, "approve": True}
+    )
+    assert missing.status_code == 404
+    assert (
+        await client.post(
+            "/api/chat/confirm", json={"conversation_id": 999999, "approve": True}
+        )
+    ).status_code == 404
+
+
+async def test_stream_chat_stops_at_the_confirmation_gate(client: AsyncClient) -> None:
+    """流式接口在确认闸门处收尾于 ``awaiting_confirmation``，而不是宣告 done。"""
+
+    user_id = await _create_user(client, username="stream_confirm")
+    await _create_target(client, user_id)
+
+    async with client.stream(
+        "POST",
+        "/api/chat/stream",
+        json={"user_id": user_id, "message": "帮我制定学习计划：数学冲刺", "confirm_commit": True},
+    ) as response:
+        assert response.status_code == 200
+        lines = [chunk async for chunk in response.aiter_lines()]
+
+    frames = [json.loads(line[len("data: ") :]) for line in lines if line.startswith("data: ")]
+    assert [frame["type"] for frame in frames if frame["type"] == "token"], "回答仍要逐字到达"
+    assert frames[-1]["type"] == "awaiting_confirmation"
+    assert not any(frame["type"] == "done" for frame in frames)
+    assert frames[-1]["confirmation"]["thread_id"]
+
+    assert (await client.get("/api/tasks", params={"user_id": user_id})).json() == []
 
 
 async def test_task_check_in_updates_status_and_streak(client: AsyncClient) -> None:
@@ -266,6 +435,39 @@ async def test_stream_chat_emits_events(client: AsyncClient) -> None:
     assert '"type": "done"' in payload
 
 
+async def test_stream_chat_emits_incremental_tokens(client: AsyncClient) -> None:
+    """阶段 3 验收：回答逐字到达，而不是攒到最后一次性出现。"""
+
+    user_id = await _create_user(client, username="token_owner")
+    await _create_target(client, user_id)
+
+    async with client.stream(
+        "POST", "/api/chat/stream", json={"user_id": user_id, "message": "数学极限为什么算不对"}
+    ) as response:
+        lines = [chunk async for chunk in response.aiter_lines()]
+
+    frames = [
+        json.loads(line[len("data: ") :])
+        for line in lines
+        if line.startswith("data: ")
+    ]
+    tokens = [frame["text"] for frame in frames if frame["type"] == "token"]
+    done = frames[-1]
+
+    # 连续多帧增量，且拼起来正好等于最终回答——不是「一次性 done」
+    assert len(tokens) > 1
+    assert "".join(tokens) == done["reply"]
+
+    # token 帧出现在 done 之前，用户看到的才是「边生成边显示」
+    assert frames[-1]["type"] == "done"
+
+    # 调用链由后端直接给出结构化帧，前端不必再拿事件里的 node 名去猜
+    calls = [frame for frame in frames if frame["type"] == "tool_call"]
+    assert calls, "答疑类提问应当在流里能看到子智能体被调起"
+    assert calls[0]["agent"] == "tutor"
+    assert calls[0]["label"]
+
+
 async def test_reminder_run_endpoint(client: AsyncClient) -> None:
     user_id = await _create_user(client, username="reminder_owner")
     await _create_target(client, user_id)
@@ -303,7 +505,7 @@ async def test_overview_exposes_roles_and_workflow(client: AsyncClient) -> None:
     assert {item["name"] for item in workflow["tools"]} >= {"generate_plan", "revise_plan"}
 
     assert len(body["schedule"]) == 4
-    assert body["capability"]["llm_provider"] == "stub"
+    assert body["capability"]["llm_provider"] == "ollama"
 
 
 async def test_knowledge_endpoints(client: AsyncClient) -> None:

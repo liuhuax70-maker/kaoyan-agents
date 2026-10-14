@@ -17,7 +17,7 @@ from app.db.models.enums import (
     TaskType,
 )
 from app.schemas.review import PlanReviewResult
-from app.schemas.workflow import AgentOutput, ToolCallRecord
+from app.schemas.workflow import AgentOutput, PlanConfirmation, ToolCallRecord
 
 
 class ProfileInput(BaseModel):
@@ -256,6 +256,17 @@ class ChatRequest(BaseModel):
     enable_retrieval: bool | None = Field(
         default=None, description="是否启用知识库检索增强，缺省读取全局配置"
     )
+    confirm_commit: bool | None = Field(
+        default=None, description="计划是否等人工确认后才落库，缺省读取全局配置"
+    )
+
+
+class ChatConfirmRequest(BaseModel):
+    """计划落库前的人工确认答复。"""
+
+    conversation_id: int
+    approve: bool = Field(description="true 则写入计划，false 则本次不写库")
+    feedback: str = Field(default="", max_length=1000, description="补充意见，可留空")
 
 
 class PlanGenerateRequest(BaseModel):
@@ -265,6 +276,9 @@ class PlanGenerateRequest(BaseModel):
     goal: str = Field(default="", max_length=500, description="补充目标描述，可留空")
     provider: str | None = None
     enable_review: bool | None = None
+    confirm_commit: bool | None = Field(
+        default=None, description="生成后是否等人工确认才落库，缺省读取全局配置"
+    )
 
 
 class ChatResponse(BaseModel):
@@ -272,7 +286,6 @@ class ChatResponse(BaseModel):
 
     conversation_id: int
     message_id: int | None = None
-    intent: str = "chat"
     agents: list[str] = Field(default_factory=list)
     tool_calls: list[ToolCallRecord] = Field(
         default_factory=list, description="聊天 Agent 调起的子智能体工具"
@@ -281,6 +294,9 @@ class ChatResponse(BaseModel):
     reply: str = ""
     plan_id: int | None = None
     plan_review: PlanReviewResult | None = None
+    confirmation: PlanConfirmation | None = Field(
+        default=None, description="待人工确认的落库内容；非空时本次尚未写库"
+    )
     errors: list[str] = Field(default_factory=list)
     trace_id: str | None = Field(default=None, description="LangFuse 追踪 ID")
     trace_url: str | None = Field(default=None, description="LangFuse 追踪链接")
@@ -367,7 +383,7 @@ class CapabilityInfo(BaseModel):
     embedding: str
     vector_backend: str
     knowledge_enabled: bool
-    crew_enabled: bool
+    review_enabled: bool
     reminders_enabled: bool
 
 

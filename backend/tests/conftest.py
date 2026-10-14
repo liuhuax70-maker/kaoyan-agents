@@ -18,12 +18,17 @@ os.environ["APP__ENV"] = "testing"
 os.environ["APP__LOG_LEVEL"] = "WARNING"
 os.environ["DATABASE__URL"] = f"sqlite+aiosqlite:///{(TMP_DIR / 'test.db').as_posix()}"
 os.environ["VECTOR__BACKEND"] = "local"
-os.environ["LLM__DEFAULT_PROVIDER"] = "stub"
+# 默认提供方必须是一个「配置齐全即视为就绪」的真实提供方：
+# 测试用假模型接管调用，但健康检查读的是配置本身，因此不能是空密钥的 deepseek。
+os.environ["LLM__DEFAULT_PROVIDER"] = "ollama"
 os.environ["CELERY__TASK_ALWAYS_EAGER"] = "true"
 # 测试环境没有 Redis，缩短超时避免连接等待拖慢用例
 os.environ["REDIS__SOCKET_TIMEOUT"] = "0.5"
 # 默认关闭计划评审协作，需要覆盖的用例显式开启
 os.environ["WORKFLOW__ENABLE_PLAN_REVIEW"] = "false"
+# 默认不在落库前暂停：绝大多数用例验证的是编排与落库本身，
+# 人工确认那条链路由 test_api.py 的确认用例显式打开
+os.environ["WORKFLOW__REQUIRE_PLAN_CONFIRMATION"] = "false"
 # 向量库落到临时目录，避免污染仓库
 os.environ["VECTOR__LOCAL_PATH"] = str(TMP_DIR / "vectorstore")
 
@@ -35,8 +40,37 @@ from app.cache.redis import cache  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.session import db  # noqa: E402
 from app.main import app  # noqa: E402
+from tests.fakes import (  # noqa: E402
+    install_fake_checkpointer,
+    install_fake_embedder,
+    install_fake_model,
+)
 
 FakeRedisClient = fakeredis.aioredis.FakeRedis
+
+
+@pytest.fixture(autouse=True)
+def fake_inference(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把模型与向量化工厂替换成测试假件。
+
+    自动启用：绝大多数用例验证的是编排、落库与接口契约，
+    不应因为缺密钥或缺网络而失败。需要真实工厂行为的用例自行覆盖本夹具。
+    """
+
+    install_fake_model(monkeypatch)
+    install_fake_embedder(monkeypatch)
+
+
+@pytest.fixture(autouse=True)
+def fake_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把工作流检查点换成内存实现。
+
+    与假模型同理：用例验证的是「暂停—恢复」这条链路本身，
+    而不是 SQLite 或 PostgreSQL 的存取细节，换掉后端即可在无外部依赖的前提下跑通。
+    真实后端的装配由 ``test_checkpoint.py`` 直接验证。
+    """
+
+    install_fake_checkpointer(monkeypatch)
 
 
 @pytest.fixture

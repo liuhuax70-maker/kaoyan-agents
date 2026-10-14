@@ -1,7 +1,7 @@
 """把领域快照渲染成提示词中的中文上下文块。"""
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel
@@ -165,11 +165,51 @@ def render_retrieved(chunks: Sequence[RetrievedChunk]) -> str:
     return "\n\n".join(blocks)
 
 
+# 知识点：上下文窗口的预算控制 —— 多轮历史不能无节制地拼进提示词，
+#   要按预算从最旧的一轮开始丢，且永远保住最近一轮（第3章 Agent进阶·记忆）
+def trim_history(
+    history: Sequence[Mapping[str, str]], char_budget: int
+) -> list[dict[str, str]]:
+    """按字符预算裁剪历史，优先保留最近几轮。
+
+    从最新往回取，取到预算用尽为止，返回仍按时间正序排列。
+    最新的一轮即使单独就超预算也保留：用户追问「第二点再展开」时，
+    被他指代的那条回答必须还在上下文里，否则记忆等于没有。
+    """
+
+    if char_budget <= 0:
+        return []
+
+    kept: list[dict[str, str]] = []
+    used = 0
+    for item in reversed(list(history)):
+        text = str(item.get("content") or "")
+        if not text.strip():
+            continue
+        if kept and used + len(text) > char_budget:
+            break
+        kept.append({"role": str(item.get("role") or "user"), "content": text})
+        used += len(text)
+
+    kept.reverse()
+    return kept
+
+
 def _strip_titles(node: Any) -> Any:
-    """递归去掉 JSON Schema 中无信息量的 title 字段，压缩提示词体积。"""
+    """递归去掉 JSON Schema 中无信息量的 title 注解，压缩提示词体积。
+
+    只删「注解式」的 title —— 即取值为字符串、由 Pydantic 自动加上的那一类。
+    字段名恰好叫 title 的属性（如 PlanDraft.title）取值为子结构而不是字符串，
+    必须保留：早期版本不区分两者，把该字段整个从输出契约里删掉了，
+    模型因此收不到「计划标题」这个必填项。
+    """
 
     if isinstance(node, dict):
-        return {key: _strip_titles(value) for key, value in node.items() if key != "title"}
+        return {
+            key: _strip_titles(value)
+            for key, value in node.items()
+            if not (key == "title" and isinstance(value, str))
+        }
     if isinstance(node, list):
         return [_strip_titles(item) for item in node]
     return node
