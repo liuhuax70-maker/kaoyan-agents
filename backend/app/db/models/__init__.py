@@ -16,10 +16,11 @@ from app.db.models.enums import (
     TargetStatus,
     TaskStatus,
     TaskType,
+    TrackedSchoolStatus,
 )
 from app.db.models.plan import PlanStage, StudyPlan, StudyTask, TaskProgress
 from app.db.models.reminder import Reminder, StudyStreak
-from app.db.models.target import ExamTarget, Subject
+from app.db.models.target import ExamTarget, Subject, TrackedSchool
 from app.db.models.user import LearnerProfile, User
 
 __all__ = [
@@ -45,5 +46,7 @@ __all__ = [
     "TaskProgress",
     "TaskStatus",
     "TaskType",
+    "TrackedSchool",
+    "TrackedSchoolStatus",
     "User",
 ]

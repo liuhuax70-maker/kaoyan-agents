@@ -13,7 +13,10 @@ export async function streamChat(
     message: string
     conversation_id?: number | null
     enable_review?: boolean
+    /** 知识库检索增强（本地语料，默认开启）。 */
     enable_retrieval?: boolean
+    /** 联网搜索（外部提供方，需要密钥，默认关闭）。与上面一项是两回事。 */
+    enable_search?: boolean
     /** 缺省由后端读取全局配置：计划落库前是否暂停等人工确认。 */
     confirm_commit?: boolean
   },

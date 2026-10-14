@@ -18,6 +18,7 @@ from app.schemas import (
     PlanRevision,
     PlanSnapshot,
     ResourcePlan,
+    SchoolAdvisorAnswer,
     TaskBreakdown,
     TutoringAnswer,
 )
@@ -51,6 +52,7 @@ def build_initial_state(
     enable_retrieval: bool = True,
     enable_review: bool = True,
     history: list[dict[str, str]] | None = None,
+    enable_search: bool = True,
     confirm_commit: bool = False,
 ) -> dict[str, Any]:
     """构造工作流初始状态。
@@ -60,6 +62,9 @@ def build_initial_state(
 
     ``history`` 由调用方（服务层）从会话记录里取，图本身不读数据库，
     因此多轮记忆的有无都可以脱离数据库单测。
+
+    ``enable_search`` 排在 ``history`` 之后：前面几个参数是按位置传递的，
+    插在中间会把 ``history`` 顶到别的形参上。
     """
 
     return {
@@ -68,6 +73,7 @@ def build_initial_state(
         "plan": plan.model_dump(mode="json") if plan else None,
         "provider": provider,
         "enable_retrieval": enable_retrieval,
+        "enable_search": enable_search,
         "enable_review": enable_review,
         "confirm_commit": confirm_commit,
         "history": list(history or []),
@@ -94,6 +100,7 @@ def build_result(state: dict[str, Any]) -> WorkflowResult:
         tutoring=_parse(state.get("tutoring"), TutoringAnswer),
         nudge=_parse(state.get("nudge"), NudgeMessage),
         plan_revision=_parse(state.get("plan_revision"), PlanRevision),
+        school_advice=_parse(state.get("school_advice"), SchoolAdvisorAnswer),
         plan_review=_parse(state.get("plan_review"), PlanReviewResult),
         errors=list(state.get("errors") or []),
         events=[WorkflowEvent.model_validate(item) for item in state.get("events") or []],
@@ -106,6 +113,18 @@ def _should_retrieve(enable_retrieval: bool | None) -> bool:
     if enable_retrieval is not None:
         return enable_retrieval
     return get_settings().knowledge.enable_retrieval
+
+
+def _should_search(enable_search: bool | None) -> bool:
+    """本次请求是否启用联网搜索，未显式指定时取全局配置。
+
+    与 ``_should_retrieve`` 各查各的配置段：联网默认为关闭（需要密钥），
+    知识库默认为开启，把两者绑在一个开关上会让默认值互相打架。
+    """
+
+    if enable_search is not None:
+        return enable_search
+    return get_settings().search.enabled
 
 
 def _should_review(enable_review: bool | None) -> bool:
@@ -184,6 +203,7 @@ async def run_workflow(
     history: list[dict[str, str]] | None = None,
     thread_id: str | None = None,
     confirm_commit: bool | None = None,
+    enable_search: bool | None = None,
 ) -> WorkflowResult:
     """执行一次完整的多智能体协作。
 
@@ -212,6 +232,7 @@ async def run_workflow(
                 _should_retrieve(enable_retrieval),
                 _should_review(enable_review),
                 history,
+                enable_search=_should_search(enable_search),
                 confirm_commit=_should_confirm(confirm_commit, thread_id),
             ),
             config,
@@ -279,6 +300,7 @@ async def stream_workflow(
     history: list[dict[str, str]] | None = None,
     thread_id: str | None = None,
     confirm_commit: bool | None = None,
+    enable_search: bool | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     # 知识点：多模式流式 —— 同一个图可以同时订阅多种流：values 给「状态整块更新」，
     #   custom 给「节点内部想推就推的增量」；传模式列表时每条产出都带模式标签
@@ -306,6 +328,7 @@ async def stream_workflow(
         _should_retrieve(enable_retrieval),
         _should_review(enable_review),
         history,
+        enable_search=_should_search(enable_search),
         confirm_commit=_should_confirm(confirm_commit, thread_id),
     )
 

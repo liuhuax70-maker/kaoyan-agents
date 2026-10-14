@@ -8,12 +8,14 @@ from app.prompts.catalog import (
 )
 from app.prompts.context import (
     render_learner,
+    render_official_links,
     render_output_contract,
     render_plan,
     render_plan_draft,
     render_reminder,
     render_retrieved,
     render_subjects,
+    render_web_intel,
     trim_history,
 )
 from app.prompts.templates import (
@@ -35,11 +37,13 @@ __all__ = [
     "get_prompt_spec",
     "get_role",
     "render_learner",
+    "render_official_links",
     "render_output_contract",
     "render_plan",
     "render_plan_draft",
     "render_reminder",
     "render_retrieved",
     "render_subjects",
+    "render_web_intel",
     "trim_history",
 ]

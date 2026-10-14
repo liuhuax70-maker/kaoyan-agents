@@ -44,6 +44,7 @@ from tests.fakes import (  # noqa: E402
     install_fake_checkpointer,
     install_fake_embedder,
     install_fake_model,
+    install_fake_search,
 )
 
 FakeRedisClient = fakeredis.aioredis.FakeRedis
@@ -59,6 +60,7 @@ def fake_inference(monkeypatch: pytest.MonkeyPatch) -> None:
 
     install_fake_model(monkeypatch)
     install_fake_embedder(monkeypatch)
+    install_fake_search(monkeypatch)
 
 
 @pytest.fixture(autouse=True)

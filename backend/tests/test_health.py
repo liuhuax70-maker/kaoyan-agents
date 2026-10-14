@@ -27,6 +27,11 @@ async def test_health_reports_all_components(
     assert body["components"]["redis"]["ok"] is True
     assert body["components"]["llm"]["ready"] is True
     assert body["components"]["vector"]["backend"] == "local"
+    # 搜索组件必须出现在健康检查里：它默认关闭，因此「未就绪」是预期状态而非故障，
+    # 但不能不可见 —— 否则线上排查择校情报为空时会无从下手
+    assert body["components"]["search"]["enabled"] is False
+    assert body["components"]["search"]["provider"] == "tavily"
+    assert body["components"]["search"]["ready"] is False
 
 
 async def test_lifespan_boots_and_serves_health(

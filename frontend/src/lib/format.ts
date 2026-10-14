@@ -72,6 +72,7 @@ export const AGENT_LABEL: Record<string, string> = {
   resource: '资料规划师',
   coach: '督学教练',
   plan_editor: '计划修订师',
+  school_advisor: '择校参谋',
 }
 
 export const TOOL_LABEL: Record<string, string> = {
@@ -82,6 +83,7 @@ export const TOOL_LABEL: Record<string, string> = {
   recommend_resources: '推荐资料',
   send_nudge: '督促提醒',
   revise_plan: '修改计划表',
+  advise_schools: '择校参谋',
 }
 
 export const REMINDER_TYPE_LABEL: Record<string, string> = {

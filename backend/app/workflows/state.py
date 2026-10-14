@@ -33,6 +33,13 @@ class WorkflowState(TypedDict, total=False):
     enable_retrieval: bool
     """本次请求是否启用知识库检索增强。"""
 
+    enable_search: bool
+    """本次请求是否启用联网搜索。
+
+    与 ``enable_retrieval`` 刻意分开：一个查本地语料（沿用知识库），
+    一个查互联网（易失、需核验）。合成一个开关会让「关掉联网」连带关掉知识库。
+    """
+
     enable_review: bool
     """本次请求是否在计划产出后触发评审。"""
 
@@ -75,6 +82,9 @@ class WorkflowState(TypedDict, total=False):
     tutoring: dict[str, Any] | None
     nudge: dict[str, Any] | None
     plan_revision: dict[str, Any] | None
+    school_advice: dict[str, Any] | None
+    """SchoolAdvisorAnswer 的序列化结果（候选院校与代价，不含任何推荐）。"""
+
     plan_review: dict[str, Any] | None
     """PlanReviewResult 的序列化结果。"""
 

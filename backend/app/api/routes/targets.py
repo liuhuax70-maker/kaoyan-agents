@@ -4,8 +4,13 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select, update
 
 from app.api.deps import SessionDep
-from app.db.models import ExamTarget, Subject, User
-from app.schemas.api import TargetCreate, TargetRead
+from app.db.models import ExamTarget, Subject, TrackedSchoolStatus, User
+from app.schemas.api import TargetCreate, TargetRead, TrackedSchoolRead
+from app.services.targets import (
+    archive_school,
+    decide_school,
+    list_tracked_schools,
+)
 
 router = APIRouter(prefix="/targets", tags=["targets"])
 
@@ -75,3 +80,53 @@ async def get_target(target_id: int, session: SessionDep) -> ExamTarget:
     if target is None:
         raise HTTPException(status_code=404, detail="备考目标不存在")
     return target
+
+
+@router.get(
+    "/{target_id}/schools",
+    response_model=list[TrackedSchoolRead],
+    summary="查询候选院校",
+)
+async def list_schools(
+    target_id: int,
+    session: SessionDep,
+    status_filter: TrackedSchoolStatus | None = None,
+) -> list:
+    """列出该目标下正在跟踪的院校，默认包含已归档的。"""
+
+    target = await session.get(ExamTarget, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="备考目标不存在")
+    return await list_tracked_schools(session, target_id=target_id, status=status_filter)
+
+
+@router.post(
+    "/{target_id}/schools/{school_id}/decide",
+    response_model=TrackedSchoolRead,
+    summary="选定某所院校",
+)
+async def decide(target_id: int, school_id: int, session: SessionDep) -> object:
+    """用户拍板：把它标为已选定，并写回备考目标。
+
+    这是**唯一**会改动 ``ExamTarget.target_school`` 的入口，
+    因此「决定是用户做的」在数据链路上一目了然。
+    """
+
+    school = await decide_school(session, target_id=target_id, school_id=school_id)
+    if school is None:
+        raise HTTPException(status_code=404, detail="候选院校不存在")
+    return school
+
+
+@router.post(
+    "/{target_id}/schools/{school_id}/archive",
+    response_model=TrackedSchoolRead,
+    summary="放弃某所院校",
+)
+async def archive(target_id: int, school_id: int, session: SessionDep) -> object:
+    """把一所院校移出考虑范围。"""
+
+    school = await archive_school(session, target_id=target_id, school_id=school_id)
+    if school is None:
+        raise HTTPException(status_code=404, detail="候选院校不存在")
+    return school

@@ -24,10 +24,12 @@ from app.prompts import (
     ROLES,
     build_messages,
     render_learner,
+    render_official_links,
     render_plan,
     render_plan_draft,
     render_retrieved,
     render_subjects,
+    render_web_intel,
 )
 from app.schemas import (
     DiagnosisReport,
@@ -38,16 +40,19 @@ from app.schemas import (
     PlanSnapshot,
     ReminderSnapshot,
     ResourcePlan,
+    SchoolAdvisorAnswer,
     TaskBreakdown,
     TutoringAnswer,
 )
 from app.schemas.workflow import AgentOutput
+from app.search import gather_school_intel
 from app.workflows.render import (
     render_breakdown,
     render_diagnosis,
     render_nudge,
     render_resource,
     render_revision,
+    render_school_advisor,
     render_tutoring,
 )
 from app.workflows.render import (
@@ -318,7 +323,7 @@ async def confirm_plan(state: WorkflowState) -> dict[str, Any]:
 # 各智能体处理器
 #
 # 知识点：节点与处理器的分工 —— 只有 prepare_context / review_plan / confirm_plan /
-#   finalize 是图节点，它们读写 State 并由图调度；下面这七个是「被工具调用的处理器」，
+#   finalize 是图节点，它们读写 State 并由图调度；下面这八个是「被工具调用的处理器」，
 #   由聊天 Agent 在自己的循环里调用，因此可以自由改签名而不影响图拓扑
 #   （第5章 LangGraph·基本概念）
 # --------------------------------------------------------------------------
@@ -541,6 +546,92 @@ async def _run_plan_editor(state: WorkflowState) -> SubagentOutcome:
     )
 
 
+def _school_query(request: str, *, school: str, major: str) -> str:
+    """拼出检索用的查询串。
+
+    已填过目标院校/专业时以它们为主词——那才是用户真正在跟踪的对象；
+    还没填时退回用户原话，让搜索替我们找出方向。
+    """
+
+    topic = " ".join(part for part in (school, major) if part)
+    return f"{topic} 考研 招生" if topic else request
+
+
+# 知识点：增强能力的降级不中断主链路 —— 联网检索与知识库检索都是「有则更好」，
+#   两者各自降级、各自渲染，任一不可用时择校仍能给出候选与核验入口
+#   （第4章 RAG Agent·构建知识库）
+async def _run_school_advisor(state: WorkflowState) -> SubagentOutcome:
+    """择校参谋：给出多所候选院校与各自的代价，由用户自己拍板。
+
+    两条检索来源刻意**合并进同一份上下文**：知识库给方法论（怎么比），
+    联网片段给线索（比什么），二者形状统一为带来源的片段，因此引用渲染链路不用改。
+    """
+
+    snapshot = _snapshot(state)
+    request = state.get("request", "") or "请帮我分析一下可以报考哪些院校"
+    school = snapshot.target_school
+    major = snapshot.target_major
+
+    # 每次咨询都重新检索：片段是易失的，不进向量库，避免污染方法论语料
+    intel = await gather_school_intel(
+        _school_query(request, school=school, major=major),
+        school=school,
+        major=major,
+        enabled=state.get("enable_search", True),
+    )
+    corpus = await retrieve_context(request, enabled=state.get("enable_retrieval", True))
+
+    messages = build_messages(
+        AgentTask.SCHOOL_ADVISOR,
+        learner_context=render_learner(snapshot),
+        request=request,
+        retrieved_context="\n\n".join(
+            part for part in (render_retrieved(corpus), render_web_intel(intel)) if part
+        ),
+        official_links=render_official_links(intel.links),
+    )
+    narrative, answer = await _call_subagent(
+        AgentTask.SCHOOL_ADVISOR, messages, SchoolAdvisorAnswer, state
+    )
+
+    # 核验入口由系统按确定性规则覆盖，模型的产出一律丢弃：
+    # 让模型给院校网址等于请它编造链接，而编错的链接会被当成事实交付
+    marks = [f"[{item.label}]({item.url})" for item in intel.links]
+    answer = answer.model_copy(update={"verification_links": marks})
+
+    title, summary, highlights = render_school_advisor(answer)
+    if marks:
+        highlights = [*highlights, f"核验入口：{' · '.join(marks)}"]
+
+    web_chunks = [item.to_chunk(subject="择校") for item in intel.results]
+    all_chunks = [*corpus, *web_chunks]
+    payload = answer.model_dump(mode="json")
+    return (
+        {
+            "school_advice": payload,
+            "outputs": [
+                _output(
+                    "school_advisor",
+                    title,
+                    summary,
+                    highlights,
+                    {**payload, "references": [item.to_payload() for item in all_chunks]},
+                )
+            ],
+            "events": [
+                _event(
+                    "school_advisor",
+                    f"给出 {len(answer.candidates)} 所候选院校，"
+                    f"线索 {len(intel.results)} 条"
+                    f"{'（已降级为官方入口）' if intel.degraded else ''}",
+                    "school_advisor",
+                )
+            ],
+        },
+        narrative,
+    )
+
+
 AGENT_HANDLERS = {
     "planner": _run_planner,
     "breakdown": _run_breakdown,
@@ -549,6 +640,7 @@ AGENT_HANDLERS = {
     "resource": _run_resource,
     "coach": _run_coach,
     "plan_editor": _run_plan_editor,
+    "school_advisor": _run_school_advisor,
 }
 
 

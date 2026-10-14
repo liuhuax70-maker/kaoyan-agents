@@ -107,6 +107,17 @@ TOOLS: tuple[SubagentTool, ...] = (
         ),
         instruction_hint="要改什么，例如「数学任务往后挪三天，并给英语加一个每日背单词任务」",
     ),
+    SubagentTool(
+        name="advise_schools",
+        agent="school_advisor",
+        label="择校参谋",
+        description=(
+            "结合个人情况与目标，列出多所可行的候选院校，说明各自适合谁、优势与代价。"
+            "用户问择校、院校对比、专业方向、报录比时使用。"
+            "只提供选项与分析，不做推荐、不替用户拍板。"
+        ),
+        instruction_hint="择校诉求，例如「本科双非，想考计算机，希望一次上岸」",
+    ),
 )
 
 TOOLS_BY_NAME: dict[str, SubagentTool] = {tool.name: tool for tool in TOOLS}

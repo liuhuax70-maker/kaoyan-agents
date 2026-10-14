@@ -80,6 +80,8 @@ async def overview() -> OverviewRead:
             embedding=settings.embedding.provider,
             vector_backend=settings.vector.backend,
             knowledge_enabled=settings.knowledge.enabled,
+            search_enabled=settings.search.enabled,
+            search_provider=settings.search.provider,
             review_enabled=settings.workflow.enable_plan_review,
             reminders_enabled=settings.reminder.enabled,
         ),

@@ -181,6 +181,43 @@ class KnowledgeSection(BaseModel):
     min_score: float = 0.12
 
 
+class SearchSection(BaseModel):
+    """联网搜索配置。
+
+    择校与每日院校简报需要外部可核验的信息，因此单独配一个搜索提供方。
+    默认关闭且无密钥时，情报采集降级为「官方入口兜底」，不影响其他能力。
+    """
+
+    enabled: bool = False
+    provider: Literal["tavily", "bocha"] = "tavily"
+    top_k: int = 6
+    timeout_seconds: float = 20.0
+
+    tavily_api_key: str = ""
+    tavily_base_url: str = "https://api.tavily.com"
+
+    bocha_api_key: str = ""
+    bocha_base_url: str = "https://api.bochaai.com"
+
+    @property
+    def api_key(self) -> str:
+        """当前提供方的密钥。"""
+
+        return self.bocha_api_key if self.provider == "bocha" else self.tavily_api_key
+
+    @property
+    def base_url(self) -> str:
+        """当前提供方的接口地址。"""
+
+        return self.bocha_base_url if self.provider == "bocha" else self.tavily_base_url
+
+    @property
+    def is_ready(self) -> bool:
+        """当前提供方是否具备可用配置。"""
+
+        return bool(self.api_key)
+
+
 class LLMSection(BaseModel):
     """大模型配置，统一走 OpenAI 兼容适配层。"""
 
@@ -305,6 +342,7 @@ class Settings(BaseSettings):
     vector: VectorSection = Field(default_factory=VectorSection)
     embedding: EmbeddingSection = Field(default_factory=EmbeddingSection)
     knowledge: KnowledgeSection = Field(default_factory=KnowledgeSection)
+    search: SearchSection = Field(default_factory=SearchSection)
     llm: LLMSection = Field(default_factory=LLMSection)
     workflow: WorkflowSection = Field(default_factory=WorkflowSection)
     reminder: ReminderSection = Field(default_factory=ReminderSection)

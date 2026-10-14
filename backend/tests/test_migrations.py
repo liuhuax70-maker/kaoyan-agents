@@ -27,6 +27,7 @@ EXPECTED_TABLES = {
     "study_streaks",
     "agent_conversations",
     "agent_messages",
+    "tracked_schools",
 }
 
 

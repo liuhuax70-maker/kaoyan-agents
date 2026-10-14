@@ -18,6 +18,7 @@ from app.prompts.catalog import (
     PLANNER_ROLE,
     RESOURCE_ROLE,
     REVIEWER_ROLE,
+    SCHOOL_ADVISOR_ROLE,
     AgentRole,
 )
 from app.prompts.catalog import TUTOR_ROLE as TUTOR_ROLE_DEF
@@ -137,6 +138,39 @@ REVISION_USER_TEMPLATE = """【考生画像】
 {output_contract}
 """
 
+SCHOOL_ADVISOR_USER_TEMPLATE = """【考生画像】
+{learner_context}
+
+【考生诉求】
+{request}
+
+【联网检索到的线索】
+{retrieved_context}
+
+【官方核验入口】
+{official_links}
+
+【执行说明】
+线索可能过期或有误，只能作为参考方向；不得把里面的分数、比例当作事实复述。
+核验入口由系统给出，引用即可，不要自行编造院校网址。
+
+【输出结构】
+{output_contract}
+"""
+
+SCHOOL_BRIEF_USER_TEMPLATE = """【考生画像】
+{learner_context}
+
+【正在跟踪的院校】
+{tracked_context}
+
+【联网检索到的线索】
+{retrieved_context}
+
+【输出结构】
+{output_contract}
+"""
+
 @dataclass(frozen=True, slots=True)
 class PromptSpec:
     """任务与提示词的绑定关系。"""
@@ -208,6 +242,18 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
         role=PLAN_EDITOR_ROLE,
         template=_make(PLAN_EDITOR_ROLE, REVISION_USER_TEMPLATE),
         required_variables=("learner_context", "plan_context", "request"),
+    ),
+    AgentTask.SCHOOL_ADVISOR: PromptSpec(
+        task=AgentTask.SCHOOL_ADVISOR,
+        role=SCHOOL_ADVISOR_ROLE,
+        template=_make(SCHOOL_ADVISOR_ROLE, SCHOOL_ADVISOR_USER_TEMPLATE),
+        required_variables=("learner_context", "request", "retrieved_context", "official_links"),
+    ),
+    AgentTask.SCHOOL_BRIEF: PromptSpec(
+        task=AgentTask.SCHOOL_BRIEF,
+        role=SCHOOL_ADVISOR_ROLE,
+        template=_make(SCHOOL_ADVISOR_ROLE, SCHOOL_BRIEF_USER_TEMPLATE),
+        required_variables=("learner_context", "tracked_context", "retrieved_context"),
     ),
 }
 

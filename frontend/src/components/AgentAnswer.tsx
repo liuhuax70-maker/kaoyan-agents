@@ -14,6 +14,7 @@ const AGENT_TONE: Record<string, BadgeTone> = {
   reviewer: 'amber',
   resource: 'sky',
   coach: 'rose',
+  school_advisor: 'indigo',
 }
 
 interface PlanStagePreview {
@@ -119,15 +120,26 @@ export function AgentAnswer({ output }: { output: AgentOutput }) {
       {references.length > 0 && (
         <details className="group rounded-xl border border-line px-3.5 py-2.5">
           <summary className="cursor-pointer list-none text-[12px] text-ink-soft hover:text-ink">
-            引用知识库片段 {references.length} 条
+            参考片段 {references.length} 条
             <span className="ml-1 text-ink-muted group-open:hidden">展开</span>
           </summary>
           <ul className="mt-2.5 space-y-2">
             {references.map((item) => (
               <li key={item.id} className="text-[12px] leading-[1.7] text-ink-muted">
-                <span className="text-ink-soft">
-                  [{item.subject || '通用'}] {item.source || item.id}
-                </span>
+                {referenceUrl(item) ? (
+                  <a
+                    href={referenceUrl(item)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-accent underline-offset-2 hover:underline"
+                  >
+                    [{item.subject || '通用'}] {item.source || item.id}
+                  </a>
+                ) : (
+                  <span className="text-ink-soft">
+                    [{item.subject || '通用'}] {item.source || item.id}
+                  </span>
+                )}
                 <span className="ml-1.5">相似度 {item.score.toFixed(2)}</span>
                 <p className="mt-0.5 line-clamp-3">{item.text}</p>
               </li>
@@ -170,6 +182,17 @@ function extractReview(
   }
 }
 
+/**
+ * 引用来源的可点链接。
+ *
+ * 只有联网得到的片段带 `url`，语料片段没有 —— 因此这里返回 `undefined` 时
+ * 回落到原来的纯文本渲染，两类片段共用同一块 UI。
+ */
+function referenceUrl(reference: Reference): string | undefined {
+  const url = reference.metadata?.url
+  return typeof url === 'string' && url ? url : undefined
+}
+
 function extractReferences(payload: Record<string, unknown>): Reference[] {
   const raw = payload.references
   if (!Array.isArray(raw)) {
@@ -187,6 +210,10 @@ function extractReferences(payload: Record<string, unknown>): Reference[] {
         score: Number(record.score ?? 0),
         source: String(record.source ?? ''),
         subject: String(record.subject ?? ''),
+        metadata:
+          record.metadata && typeof record.metadata === 'object'
+            ? (record.metadata as Reference['metadata'])
+            : undefined,
       },
     ]
   })

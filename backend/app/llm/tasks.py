@@ -15,6 +15,8 @@ from app.schemas import (
     PlanReviewResult,
     PlanRevision,
     ResourcePlan,
+    SchoolAdvisorAnswer,
+    SchoolBrief,
     SubagentReply,
     TaskBreakdown,
     TutoringAnswer,
@@ -35,6 +37,8 @@ class AgentTask(StrEnum):
     WEEKLY_DIGEST = "weekly_digest"
     PLAN_REVIEW = "plan_review"
     PLAN_REVISION = "plan_revision"
+    SCHOOL_ADVISOR = "school_advisor"
+    SCHOOL_BRIEF = "school_brief"
 
 
 TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
@@ -47,6 +51,8 @@ TASK_SCHEMAS: dict[AgentTask, type[BaseModel]] = {
     AgentTask.WEEKLY_DIGEST: WeeklyDigest,
     AgentTask.PLAN_REVIEW: PlanReviewResult,
     AgentTask.PLAN_REVISION: PlanRevision,
+    AgentTask.SCHOOL_ADVISOR: SchoolAdvisorAnswer,
+    AgentTask.SCHOOL_BRIEF: SchoolBrief,
 }
 
 
@@ -59,9 +65,13 @@ SUBAGENT_TASKS: frozenset[AgentTask] = frozenset(
         AgentTask.RESOURCE_PLAN,
         AgentTask.NUDGE,
         AgentTask.PLAN_REVISION,
+        AgentTask.SCHOOL_ADVISOR,
     }
 )
-"""由聊天 Agent 通过工具调起的任务，与 ``agents/tools.py`` 的七个工具一一对应。
+"""由聊天 Agent 通过工具调起的任务，与 ``agents/tools.py`` 的八个工具一一对应。
+
+``SCHOOL_BRIEF`` 刻意**不在**此列：它与 ``WEEKLY_DIGEST`` 同形，只由 Celery 定时任务
+消费，只要结构化数据、不要面向用户的正文通道，套上信封反而多解析一层。
 
 这些任务走双轨产出：同一次调用既给出面向用户的正文，也给出结构化产物。
 图节点任务（如计划评审）不在此列——它们的产出由节点自己渲染，不需要正文通道。

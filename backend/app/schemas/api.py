@@ -15,6 +15,7 @@ from app.db.models.enums import (
     TargetStatus,
     TaskStatus,
     TaskType,
+    TrackedSchoolStatus,
 )
 from app.schemas.review import PlanReviewResult
 from app.schemas.workflow import AgentOutput, PlanConfirmation, ToolCallRecord
@@ -121,6 +122,24 @@ class TargetRead(BaseModel):
     is_primary: bool
     description: str
     subjects: list[SubjectRead] = Field(default_factory=list)
+
+
+class TrackedSchoolRead(BaseModel):
+    """候选院校的对外形状。
+
+    ``snapshot`` 原样透出生成时冻结的优劣势与核验入口，前端不重新解释它——
+    这些内容的价值就在于「当时是这么说的」，二次加工会让它失去可追溯性。
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    target_id: int
+    name: str
+    major: str
+    status: TrackedSchoolStatus
+    snapshot: dict = Field(default_factory=dict)
+    order_index: int = 0
 
 
 class TaskRead(BaseModel):
@@ -256,6 +275,10 @@ class ChatRequest(BaseModel):
     enable_retrieval: bool | None = Field(
         default=None, description="是否启用知识库检索增强，缺省读取全局配置"
     )
+    enable_search: bool | None = Field(
+        default=None,
+        description="是否启用联网搜索（择校情报），缺省读取全局配置；与知识库检索是两个开关",
+    )
     confirm_commit: bool | None = Field(
         default=None, description="计划是否等人工确认后才落库，缺省读取全局配置"
     )
@@ -383,6 +406,8 @@ class CapabilityInfo(BaseModel):
     embedding: str
     vector_backend: str
     knowledge_enabled: bool
+    search_enabled: bool
+    search_provider: str
     review_enabled: bool
     reminders_enabled: bool
 

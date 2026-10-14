@@ -8,9 +8,12 @@ from pydantic import BaseModel
 
 from app.knowledge.types import RetrievedChunk
 from app.schemas import LearnerSnapshot, PlanDraft, PlanSnapshot, ReminderSnapshot
+from app.search.types import OfficialLink, SchoolIntel
 
 MAX_TASK_LINES = 20
 NO_DATA = "- （暂无数据）"
+MAX_INTEL_SNIPPET = 240
+"""单条联网线索进入提示词的最大字符数。搜索摘要可能很长，不设上限会挤占上下文预算。"""
 
 
 def _bullets(lines: list[str]) -> str:
@@ -163,6 +166,34 @@ def render_retrieved(chunks: Sequence[RetrievedChunk]) -> str:
         source = chunk.source or "知识库"
         blocks.append(f"[{index}] {subject}{source}（相似度 {chunk.score:.2f}）\n{chunk.text}")
     return "\n\n".join(blocks)
+
+
+# 知识点：把「检索到的内容」与「它的来源」一起交给模型 —— 无来源的片段只能被当成
+#   通用知识复述，带上 URL 才可能被引用成可核验的线索；同时空结果要显式说明是
+#   「未启用」还是「没搜到」，两者对模型的约束不同（第4章 RAG Agent·引用与溯源）
+def render_web_intel(intel: SchoolIntel) -> str:
+    """渲染联网搜索线索，带上来源 URL。"""
+
+    if not intel.results:
+        reason = "本次未启用联网搜索" if intel.degraded else "本次联网搜索没有返回结果"
+        return (
+            f"- （{reason}。可以给出取舍角度与判断方法，但必须明确告知具体数据要以"
+            "官方渠道为准，不得编造分数线、报录比这类具体数字）"
+        )
+
+    blocks: list[str] = []
+    for index, item in enumerate(intel.results, start=1):
+        snippet = item.snippet[:MAX_INTEL_SNIPPET]
+        blocks.append(f"[{index}] {item.title}｜{item.url}\n{snippet}")
+    return "\n\n".join(blocks)
+
+
+def render_official_links(links: Sequence[OfficialLink]) -> str:
+    """渲染官方核验入口，供模型转述给考生。"""
+
+    if not links:
+        return NO_DATA
+    return "\n".join(f"- {item.label}：{item.url}" for item in links)
 
 
 # 知识点：上下文窗口的预算控制 —— 多轮历史不能无节制地拼进提示词，

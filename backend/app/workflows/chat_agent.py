@@ -138,6 +138,7 @@ def _merge(
             "tutoring",
             "nudge",
             "plan_revision",
+            "school_advice",
         ):
             if fragment.get(key) is not None:
                 merged[key] = fragment[key]

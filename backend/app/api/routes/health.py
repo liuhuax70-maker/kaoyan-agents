@@ -38,6 +38,11 @@ async def health() -> dict[str, Any]:
                 "embedding_ready": settings.embedding.is_ready,
                 "dimension": settings.embedding.dimension,
             },
+            "search": {
+                "enabled": settings.search.enabled,
+                "provider": settings.search.provider,
+                "ready": settings.search.is_ready,
+            },
             "llm": {
                 "provider": settings.llm.default_provider,
                 "ready": settings.llm.is_ready(),

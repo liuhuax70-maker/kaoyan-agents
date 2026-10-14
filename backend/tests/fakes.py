@@ -59,6 +59,21 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "review": ("复盘", "总结", "诊断", "进度", "落后", "焦虑", "来得及", "效率", "完成度", "状态"),
     "resource": ("资料", "书单", "教材", "真题", "题库", "用什么书", "网课", "讲义"),
     "nudge": ("提醒", "督促", "坚持不下去", "打卡", "断签", "没动力"),
+    # 择校词表刻意避开「备考」「规划」「计划」：那几个词属于 plan，
+    # 一旦共用，「帮我规划择校」就会被判成生成计划。
+    "school": (
+        "择校",
+        "选学校",
+        "选院校",
+        "院校",
+        "报录比",
+        "性价比",
+        "哪个学校",
+        "目标院校",
+        "招生简章",
+        "招生目录",
+        "专业目录",
+    ),
 }
 
 INTENT_AGENTS: dict[str, list[str]] = {
@@ -69,6 +84,7 @@ INTENT_AGENTS: dict[str, list[str]] = {
     "review": ["reviewer"],
     "resource": ["resource"],
     "nudge": ["coach"],
+    "school": ["school_advisor"],
     "chat": ["tutor"],
 }
 
@@ -194,6 +210,7 @@ def parse_prompt_context(messages: Sequence[BaseMessage]) -> dict[str, Any]:
         "资料需求",
         "待拆解的阶段或目标",
         "用户诉求",
+        "考生诉求",
     )
     plan_tasks = [
         str(item).strip()
@@ -221,6 +238,9 @@ def parse_prompt_context(messages: Sequence[BaseMessage]) -> dict[str, Any]:
         "plan_tasks": plan_tasks,
         "due_tasks": _bullets_of(text, "今日待完成任务"),
         "overdue_tasks": _bullets_of(text, "已逾期任务"),
+        # 择校与简报：核验入口必须由系统注入，假模型只照抄提示词里给的那份
+        "official_links": _section(text, "官方核验入口"),
+        "tracked_context": _section(text, "正在跟踪的院校"),
         # 计划评审所需的草稿指标
         "horizon_days": _search(r"计划周期：(\d+) 天", text, int),
         "stage_count": _search(r"阶段数量：(\d+)｜", text, int),
@@ -835,6 +855,88 @@ def build_plan_revision(context: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+FAKE_SCHOOL_CANDIDATES: tuple[dict[str, Any], ...] = (
+    {
+        "name": "某某大学",
+        "major": "计算机科学与技术",
+        "fit_for": "本科基础扎实、能承受高强度竞争的考生",
+        "pros": ["学科积累深，专业课资料容易找到", "所在地实习与就业资源集中"],
+        "cons": ["报考人数多，复试竞争激烈", "专业课统考科目复习量大"],
+        "evidence": ["检索片段提到该校近年招生规模，具体数字需以官方目录为准"],
+    },
+    {
+        "name": "某某理工大学",
+        "major": "计算机技术",
+        "fit_for": "希望稳妥落地、更看重一次上岸的考生",
+        "pros": ["专业课自命题，复习范围相对明确", "招生规模较大，录取名额相对宽裕"],
+        "cons": ["院校层次低于第一档，就业招牌弱一些", "热门方向导师资源紧张"],
+        "evidence": ["检索片段提到该校自命题科目，科目代码需以官方目录为准"],
+    },
+    {
+        "name": "某某师范大学",
+        "major": "教育技术学",
+        "fit_for": "愿意转向教育信息化方向、跨考压力较小的考生",
+        "pros": ["跨考友好，专业课以记忆与理解为主", "师范类就业方向相对稳定"],
+        "cons": ["与本科专业跨度大，需要重建知识体系", "对口技术岗位口径较窄"],
+        "evidence": ["检索片段提到该校该专业接收跨考生，具体要求需以招生简章为准"],
+    },
+)
+"""假模型的候选院校池：名称与 fit_for 互不相同，符合 Schema 的机械不变式。
+
+刻意使用「某某」式占位名与不含具体分数线的措辞：假件也不该产出
+看起来权威的数字，否则测试会默认「编造分数是可以接受的」。
+"""
+
+
+def build_school_advice(context: dict[str, Any]) -> dict[str, Any]:
+    """生成候选院校对比，刻意不给出任何排序或推荐。"""
+
+    return {
+        "candidates": [dict(item) for item in FAKE_SCHOOL_CANDIDATES],
+        "comparison_dimensions": [
+            "近三年复试线与报录比（以官方公布为准）",
+            "专业课科目与参考书是否与你的复习基础匹配",
+            "地域与未来就业方向",
+            "复试差额比例与调剂空间",
+        ],
+        "decision_questions": [
+            "你更在意一次上岸，还是更在意院校层次？",
+            "能否接受异地读研与三年后的就业半径变化？",
+            "专业课从零开始，你愿意投入多长时间？",
+        ],
+        # 核验入口由系统注入，假模型照规矩留空，与真提示词的要求一致
+        "verification_links": [],
+        "caveats": [
+            "以上为候选与代价的客观梳理，是否报考由你自己决定。",
+            "院校信息变化快，务必以院校研究生院官网与研招网的官方招生简章为准。",
+        ],
+    }
+
+
+def build_school_brief(context: dict[str, Any]) -> dict[str, Any]:
+    """生成每日院校简报。
+
+    只跟踪院校的**名称**：提示词里没有具体分数线，假模型也就不该凭空写出来——
+    真提示词同样被要求不得复述片段里的数字。
+    """
+
+    tracked = [
+        line.strip().lstrip("-·* ").strip()
+        for line in str(context.get("tracked_context") or "").splitlines()
+        if line.strip()
+    ]
+    names = [item.split("｜")[0].strip() for item in tracked] or ["目标院校"]
+
+    return {
+        "title": "今日院校简报",
+        "summary": f"今天为你整理了 {len(names)} 所跟踪院校的动向，供你自行判断。",
+        "highlights": [f"{name}：建议自行核对最新招生简章与专业目录" for name in names],
+        # 核验入口由系统按确定性规则注入，这里照规矩留空
+        "links": [],
+        "caveats": ["院校信息变化快，最终以院校研究生院官网与研招网的官方公告为准。"],
+    }
+
+
 # 知识点：假模型的等价性 —— 替身要与真实模型消费同一份输入（提示词）并产出同形状的输出，
 #   否则测试验证的是假件的想象而不是真实链路（第2章 LangChain核心组件·模型）
 # --------------------------------------------------------------------------
@@ -999,6 +1101,30 @@ def narrate_plan_revision(payload: dict[str, Any]) -> str:
     )
 
 
+def narrate_school_advice(payload: dict[str, Any]) -> str:
+    """择校候选对比的正文：逐所说明适合谁与代价，不给结论。"""
+
+    candidates = payload.get("candidates") or []
+    return _doc(
+        "## 择校候选分析",
+        f"共 {len(candidates)} 所候选，各有利弊，选择权在你。",
+        _block(
+            "候选院校",
+            [
+                f"{item.get('name')}（{item.get('major') or '专业待定'}）："
+                f"适合{item.get('fit_for')}｜"
+                f"优势：{'；'.join(item.get('pros') or [])}｜"
+                f"代价：{'；'.join(item.get('cons') or [])}"
+                for item in candidates
+            ],
+        ),
+        _block("建议你自己比较的维度", payload.get("comparison_dimensions") or []),
+        _block("需要你自己回答的问题", payload.get("decision_questions") or []),
+        _block("注意事项", payload.get("caveats") or []),
+        "以上是候选与代价的梳理，最终报考哪一所由你决定。",
+    )
+
+
 FAKE_BUILDERS: dict[str, PayloadBuilder] = {
     "plan_draft": build_plan_draft,
     "task_breakdown": build_task_breakdown,
@@ -1009,6 +1135,8 @@ FAKE_BUILDERS: dict[str, PayloadBuilder] = {
     "weekly_digest": build_weekly_digest,
     "plan_review": build_plan_review,
     "plan_revision": build_plan_revision,
+    "school_advisor": build_school_advice,
+    "school_brief": build_school_brief,
 }
 
 NARRATIVE_BUILDERS: dict[str, NarrativeBuilder] = {
@@ -1019,6 +1147,7 @@ NARRATIVE_BUILDERS: dict[str, NarrativeBuilder] = {
     "resource_plan": narrate_resource_plan,
     "nudge": narrate_nudge,
     "plan_revision": narrate_plan_revision,
+    "school_advisor": narrate_school_advice,
 }
 
 NARRATIVE_TASKS = frozenset(NARRATIVE_BUILDERS)
@@ -1268,6 +1397,51 @@ def install_fake_embedder(monkeypatch: Any) -> None:
         return await StubEmbedder(self.dimension).embed(texts)
 
     monkeypatch.setattr(embeddings_module.OpenAICompatEmbedder, "embed", fake_embed)
+
+
+FAKE_SEARCH_RESULTS: tuple[dict[str, str], ...] = (
+    {
+        "title": "某校 2026 年硕士研究生招生简章",
+        "url": "https://example.edu.cn/zs/2026",
+        "snippet": "该校招收计算机科学与技术专业硕士，初试科目含 408 计算机学科专业基础综合。",
+    },
+    {
+        "title": "某校 计算机技术 复试分数线公告",
+        "url": "https://example.edu.cn/zs/2026/line",
+        "snippet": "分数线以当年官方公告为准，往年数据仅供参考。",
+    },
+    {
+        "title": "研招网 · 硕士专业目录查询",
+        "url": "https://yz.chsi.com.cn/zsml/",
+        "snippet": "招生人数与考试科目以当年专业目录为准。",
+    },
+)
+
+
+def install_fake_search(monkeypatch: Any) -> None:
+    """只替换搜索最外层的网络调用，返回确定性结果。
+
+    与 ``install_fake_embedder`` 同理：刻意不替换 ``build_search_client`` 工厂，
+    配置校验与提供方选择这些真实逻辑保留，因此「无密钥应报配置错误」的契约依然成立。
+    """
+
+    import app.search.client as search_module
+    from app.search.types import SearchResult
+
+    async def fake_search(self: Any, query: str, *, top_k: int) -> list[SearchResult]:
+        return [
+            SearchResult(
+                title=item["title"],
+                url=item["url"],
+                snippet=item["snippet"],
+                score=1.0 - index * 0.1,
+                provider=self.provider,
+            )
+            for index, item in enumerate(FAKE_SEARCH_RESULTS[:top_k])
+        ]
+
+    monkeypatch.setattr(search_module.TavilySearchClient, "search", fake_search)
+    monkeypatch.setattr(search_module.BochaSearchClient, "search", fake_search)
 
 
 # --------------------------------------------------------------------------

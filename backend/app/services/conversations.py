@@ -25,6 +25,7 @@ from app.services.snapshots import (
     load_learner_snapshot,
     load_primary_target,
 )
+from app.services.targets import upsert_candidates
 from app.workflows import resume_workflow, run_workflow, stream_workflow
 
 logger = get_logger(__name__)
@@ -68,6 +69,7 @@ class ChatContext:
     provider: str | None
     enable_review: bool | None
     enable_retrieval: bool | None
+    enable_search: bool | None
     history: list[dict[str, str]]
     """当前提问之前的对话轮次，按时间正序，供聊天 Agent 指代上文。"""
 
@@ -225,6 +227,7 @@ async def start_conversation(
         provider=request.provider,
         enable_review=request.enable_review,
         enable_retrieval=request.enable_retrieval,
+        enable_search=request.enable_search,
         history=history,
         thread_id=f"{conversation.id}:{message.id}",
         confirm_commit=request.confirm_commit,
@@ -328,6 +331,18 @@ async def persist_result(
         )
         plan_id = commit.plan.id
         logger.info("计划修订：%s", "；".join(outcome.details) or "无改动")
+
+    if result.school_advice is not None and commit.target_id is not None:
+        # 参谋的产出只以 CANDIDATE 落库：把候选提升为「已选定」的只有用户的显式动作，
+        # 因此这一步永远不会改动 ExamTarget.target_school
+        await upsert_candidates(
+            session,
+            user_id=commit.user_id,
+            target_id=commit.target_id,
+            answer=result.school_advice,
+        )
+    elif result.school_advice is not None:
+        logger.warning("用户 %s 尚无备考目标，跳过候选院校落库", commit.user_id)
 
     reply = result.reply_text()
     message = await _append_message(
@@ -435,6 +450,7 @@ async def handle_chat(session: AsyncSession, request: ChatRequest) -> ChatRespon
         provider=context.provider,
         enable_review=context.enable_review,
         enable_retrieval=context.enable_retrieval,
+        enable_search=context.enable_search,
         user_id=context.user_id,
         session_id=str(context.conversation_id),
         history=context.history,
@@ -465,6 +481,7 @@ async def stream_chat(request: ChatRequest) -> AsyncIterator[str]:
             provider=context.provider,
             enable_review=context.enable_review,
             enable_retrieval=context.enable_retrieval,
+            enable_search=context.enable_search,
             user_id=context.user_id,
             session_id=str(context.conversation_id),
             history=context.history,

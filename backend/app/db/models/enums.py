@@ -126,3 +126,21 @@ class MessageRole(StrEnum):
     ASSISTANT = "assistant"
     SYSTEM = "system"
     TOOL = "tool"
+
+
+class TrackedSchoolStatus(StrEnum):
+    """候选院校状态。
+
+    刻意不复用 ``TargetStatus``：那个枚举描述的是「备考目标」的生命周期，
+    这里的 ``DECIDED`` 表达的是「用户自己拍板选了它」，语义不同且约束也不同
+    （每用户至多一个 DECIDED）。复用会让 `exam_targets` 的 CHECK 约束被牵连改动。
+    """
+
+    CANDIDATE = "candidate"
+    """择校参谋给出的候选，用户尚未拍板。"""
+
+    DECIDED = "decided"
+    """用户自己选定的院校，会写回 `ExamTarget.target_school`。"""
+
+    ARCHIVED = "archived"
+    """用户明确不再考虑的院校。"""

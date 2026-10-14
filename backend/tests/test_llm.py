@@ -21,6 +21,7 @@ from app.llm import (
 from app.prompts import (
     build_messages,
     render_learner,
+    render_official_links,
     render_plan_draft,
     render_reminder,
     render_retrieved,
@@ -32,6 +33,7 @@ from app.schemas import (
     ReminderSnapshot,
     SubjectSnapshot,
 )
+from app.search.official_links import official_entry_links
 from tests.fakes import FakeChatModel, build_plan_draft, parse_prompt_context
 
 
@@ -87,6 +89,10 @@ def _variables() -> dict[str, str]:
         "plan_context": render_plan_draft(draft),
         "reminder_context": render_reminder(reminder),
         "retrieved_context": render_retrieved([]),
+        "official_links": render_official_links(
+            official_entry_links("某某大学", major="计算机技术")
+        ),
+        "tracked_context": "\n".join(f"- {name}｜候选" for name in ("某某大学", "某某理工大学")),
         "request": "帮我制定从现在到考试的复习计划",
         "scope": "把数学基础阶段拆成两周的任务",
     }

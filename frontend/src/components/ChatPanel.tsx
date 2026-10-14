@@ -6,7 +6,7 @@ import { AgentAnswer } from './AgentAnswer'
 import { ConfirmationCard } from './ConfirmationCard'
 import { Markdown } from './Markdown'
 import { useWorkspace } from './WorkspaceProvider'
-import { IconArrowUp, IconBulb, IconCopy, IconGlobe, IconStop } from './icons'
+import { IconArrowUp, IconBulb, IconCopy, IconGlobe, IconSpark, IconStop } from './icons'
 import { IconButton, Spinner, TogglePill, cx } from './ui'
 import { TOOL_LABEL } from '@/lib/format'
 import { api } from '@/lib/api'
@@ -49,6 +49,8 @@ export function ChatPanel() {
   const [localError, setLocalError] = useState<string | null>(null)
   const [enableReview, setEnableReview] = useState(false)
   const [enableRetrieval, setEnableRetrieval] = useState(true)
+  // 联网搜索与知识库检索是两回事：前者走外部提供方、需要密钥，因此默认关闭
+  const [enableSearch, setEnableSearch] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -171,6 +173,7 @@ export function ChatPanel() {
           conversation_id: activeConversationId,
           enable_review: enableReview,
           enable_retrieval: enableRetrieval,
+          enable_search: enableSearch,
         },
         handle,
         controller.signal,
@@ -370,9 +373,16 @@ export function ChatPanel() {
                 <TogglePill
                   active={enableRetrieval}
                   onClick={() => setEnableRetrieval((value) => !value)}
+                  icon={<IconSpark size={14} />}
+                  label="知识库检索"
+                  title="启用本地知识库检索增强"
+                />
+                <TogglePill
+                  active={enableSearch}
+                  onClick={() => setEnableSearch((value) => !value)}
                   icon={<IconGlobe size={14} />}
                   label="联网搜索"
-                  title="启用知识库检索增强"
+                  title="联网搜索院校情报，需后端配置搜索提供方密钥"
                 />
               </div>
 

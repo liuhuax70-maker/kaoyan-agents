@@ -160,6 +160,32 @@ export interface PlanReviewResult {
   reviewer: string
 }
 
+/** 择校参谋给出的候选院校之一。后端 `SchoolCandidate` 一一对应。 */
+export interface SchoolCandidate {
+  name: string
+  major: string
+  /** 这所院校适合什么样的考生 —— 决定权在用户手上，所以这里只描述适用人群。 */
+  fit_for: string
+  pros: string[]
+  cons: string[]
+  evidence: string[]
+}
+
+/**
+ * 择校参谋的产出。
+ *
+ * 刻意没有 `rank` / `recommended` 这类字段：后端 Schema 用 `extra="forbid"`
+ * 把它们堵死了，前端也不该自己造一个「推荐标记」出来。
+ * `verification_links` 由后端按确定性规则注入，不是模型编的网址。
+ */
+export interface SchoolAdvice {
+  candidates: SchoolCandidate[]
+  comparison_dimensions: string[]
+  decision_questions: string[]
+  verification_links: string[]
+  caveats: string[]
+}
+
 export interface AgentOutput {
   agent: string
   name: string
@@ -175,6 +201,11 @@ export interface Reference {
   score: number
   source: string
   subject: string
+  /**
+   * 语料片段的元信息。联网得到的片段在这里带 `url`，
+   * 由后端 `SearchResult.to_chunk()` 填 —— 有了它「来源」才能渲染成可点的链接。
+   */
+  metadata?: { url?: string; [key: string]: unknown }
 }
 
 /** 聊天 Agent 的一次子智能体工具调用。 */

@@ -8,6 +8,7 @@ from app.schemas import (
     PlanRevisionOp,
     ResourcePlan,
     RevisionAction,
+    SchoolAdvisorAnswer,
     TaskBreakdown,
     TutoringAnswer,
     WeeklyDigest,
@@ -125,3 +126,26 @@ def render_revision(revision: PlanRevision) -> RenderResult:
     else:
         highlights = ["未识别出可执行的修改，计划保持不变"]
     return "计划修订提案", revision.summary or "已生成修订提案", highlights
+
+
+def render_school_advisor(answer: SchoolAdvisorAnswer) -> RenderResult:
+    """渲染择校参谋结果。
+
+    ``highlights`` 逐所院校列出「适合谁 + 一条优势 + 一条代价」，刻意**不排序、不比较优劣**：
+    要点列表本身就是用户拿来权衡的材料，一旦出现顺序暗示就等于产品替用户排了名次。
+    顺序沿用模型产出的原始顺序。
+    """
+
+    highlights = []
+    for candidate in answer.candidates:
+        name = f"{candidate.name}·{candidate.major}" if candidate.major else candidate.name
+        pros = candidate.pros[0] if candidate.pros else ""
+        cons = candidate.cons[0] if candidate.cons else ""
+        highlights.append(f"{name}：适合{candidate.fit_for}｜优势：{pros}｜代价：{cons}")
+
+    if answer.decision_questions:
+        highlights.append("需要你自己回答：" + "；".join(answer.decision_questions[:3]))
+
+    return "择校候选对比", "以上为候选与代价的客观梳理，是否报考由你决定。" + "".join(
+        answer.caveats[:1]
+    ), highlights

@@ -255,16 +255,128 @@
 受影响的用例 `test_api.py::test_chat_routes_intent_and_keeps_conversation` 改为断言
 `tool_calls[0]["agent"] == "tutor"` —— 测的还是「路由到答疑讲师」这件事，只是换了权威来源。
 
+## 阶段 6：择校情报底座（联网搜索 + 官方入口兜底）
+
+产品规格要求择校能力给出**多所院校**与**可核验的链接**，而此前全仓没有任何联网能力：
+唯一的出站 HTTP 是 embeddings 客户端，界面上那个「联网搜索」开关实际开的是知识库检索。
+本阶段只建情报底座 —— 不含 LLM、不含新表、不含新智能体，可独立验证。
+
+| 代码位置 | 板块 | 知识点 | 文档定位 | 一句话原理 |
+| --- | --- | --- | --- | --- |
+| `search/types.py` · `SearchResult.to_chunk` | 多数据源接入 | 统一片段形状 | 第4章 RAG Agent·构建知识库 | 新数据源只要产出同一种「带来源的片段」，引用渲染与溯源链路就不必重写；`source` 取页面标题（给人读），URL 另放 `metadata`（给前端做链接），两者不能混为一谈 |
+| `search/official_links.py` · `official_entry_links` | 幻觉抑制 | 把「去哪核验」从模型手里拿走 | 第4章 RAG Agent | 让模型写院校域名等于请它编造链接，而编错的链接就是「把假事实当事实交付」；只给确定性入口与搜索跳转 URL，最坏情况也只是「多跳一次搜索」而不是「指向抢注域名」 |
+| `search/base.py` · `gather_school_intel` | 降级契约 | 增强能力失败不得中断主链路 | 第4章 RAG Agent·构建知识库 | 与 `retrieve_context` 同一条契约：未启用/无密钥/超时/报错一律降级而非抛出；且降级内容本身要有用 —— 官方入口不依赖任何外部服务，所以「没搜到」不等于「什么都没给」 |
+| `prompts/context.py` · `render_web_intel` | 引用与溯源 | 片段必须连同来源一起进提示词 | 第4章 RAG Agent | 无来源的片段只能被当成通用知识复述，带上 URL 才可能被引用成可核验线索；另外「未启用」与「搜了没结果」对模型的约束不同，必须分开说明 |
+| `core/config.py` · `SearchSection` | 配置 | 提供方差异集中在配置 | 第2章 LangChain 核心组件 | 与 `EmbeddingSection` 同形：Tavily 与博查协议不同但职责相同，差异归一为 `api_key`/`base_url` 两个属性，调用方拿到的结果与用的是哪家无关 |
+
+### 本阶段的验证点
+
+- `tests/test_search.py` —— 16 个用例分三层：客户端断言「构造出什么请求 + 怎么解析响应」
+  （含相关性字段是字符串或 `null` 时的兜底），门面断言「未启用 / 无密钥 / HTTP 500 三条
+  降级路径」，官方入口断言**主机名白名单**（`yz.chsi.com.cn` 或 `www.baidu.com` 之内，
+  而不是断言某条具体链接长什么样 —— 后者一改模板就红，前者才守住「不编造域名」这条不变量）。
+- `tests/test_health.py` —— 健康检查新增 `search` 组件。默认为「未就绪」是预期状态而非故障，
+  但必须可见，否则线上排查「择校情报为什么是空的」会无从下手。
+- 未引入任何新依赖：只用已装的 `httpx`。少一个依赖就少一处需要跟着协议变更维护的地方。
+
+### 一处刻意的分层（记录原因）
+
+**客户端不吞异常，降级只发生在门面。** `TavilySearchClient.search` 遇到 HTTP 500 直接
+`raise_for_status` 抛出去，由 `gather_school_intel` 兜住。这样两个契约可以分别测试：
+「HTTP 失败要抛出」和「失败后要降级」是两件事，混在一个函数里就只能一起测。
+测试假件也按同样原则——`install_fake_search` 只替换客户端的 `search` 方法，
+**不替换 `build_search_client` 工厂**，因此「无密钥应报 `ConfigurationError`」这条契约在测试中依然成立。
+
+## 阶段 7：择校智能体 + 候选院校持久化
+
+产品规格里最硬的一条是「不能帮用户做决定，只能听取用户的唯一决定」。这句话不能靠
+提示词里写一句「请不要排名」来落实 —— 提示词是散文，无法验证。本阶段把这条约束
+**翻译成四层结构**，并让「谁做的决定」在数据上可区分：参谋只被允许写 `candidate` 行，
+把某一行提升为 `decided` 并写回 `ExamTarget.target_school` 的只有用户的显式动作。
+
+| 代码位置 | 板块 | 知识点 | 文档定位 | 一句话原理 |
+| --- | --- | --- | --- | --- |
+| `schemas/school.py` · `_FORBID_EXTRA` | 结构约束 | 结构化输出的封闭契约 | 第2章 LangChain核心组件·结构化输出 | 只有 `extra="forbid"` 才会让 `model_json_schema()` 输出 `additionalProperties: false`，而提示词渲染只剥字符串型的 `title` —— 于是「不许出现的字段」是被模型看得见的契约，多吐一个键就是可拦截的校验错误 |
+| `schemas/school.py` · `_candidates_must_be_distinct` | 结构约束 | 跨字段规则不在 Schema 里 | 第2章 LangChain核心组件·结构化输出 | `mode="after"` 的校验器不进 JSON Schema，模型**看不到**它；这类规则必须在角色提示词里复述一遍，否则模型只能在重试时才知道自己错了（烧掉重试预算） |
+| `schemas/school.py` · `candidates` 的长度约束 | 结构约束 | 用 Schema 表达业务不变式 | 第2章 LangChain核心组件·结构化输出 | 「至少三所」写成 `Field(min_length=3)` 后落进契约的 `minItems`，模型一开始就知道底线；能靠 Schema 表达的约束不要写进校验器，那是兜底而不是说明 |
+| `prompts/catalog.py` · `SCHOOL_ADVISOR_ROLE.extra_rules` | 提示词 | 不可信输入的边界 | 第4章 RAG Agent | 联网片段来自互联网、可能过期或有误，只能当线索：提示词必须写明「不得把片段里的分数线/报录比当事实复述」，并给出核验入口 —— 提供线索、不做权威背书 |
+| `workflows/nodes.py` · `_run_school_advisor` | 降级 | 增强能力的降级不中断主链路 | 第4章 RAG Agent·构建知识库 | 联网与知识库都是「有则更好」：两者各自降级、各自渲染，任一不可用时择校仍能给出候选与核验入口（官方入口不依赖任何外部服务） |
+| `workflows/nodes.py` · `_run_school_advisor` | 检索 | 逐次查询的片段不进向量库 | 第4章 RAG Agent·构建知识库 | 向量库是**持久**知识（这里是 9 篇方法论语料），逐次查询的易失片段写进去等于污染语料，还得再做过期删除；这个基数上做 embed + 余弦 + top_k 只会丢掉本来有用的那条 |
+| `agents/tools.py` · `advise_schools` | 架构 | Subagents 的可扩展点 | 第3章 Agent进阶·Multi Agent | 新增一个子智能体 = 一个工具 + 一个处理器，聊天 Agent 的分派逻辑一行不改；`test_every_tool_maps_to_a_real_subagent` 断言工具数与处理器数相等，两边不可能各走各的 |
+| `workflows/chat_agent.py` · `_merge` | 状态 | 新产物字段的传播清单 | 第5章 LangGraph·基本概念 | 处理器返回的状态片段要合并进最终状态，白名单式的传播元组漏一项，产物就永远到不了 API —— `WorkflowResult.digest` 这个死字段就是「只声明字段什么都不接」的活标本 |
+| `frontend/src/components/AgentAnswer.tsx` · `referenceUrl` | 引用与溯源 | 引用来源的可点形态 | 第4章 RAG Agent·构建知识库 | 片段统一带 `metadata.url`，语料片段没有该键 —— 于是同一块引用 UI 能同时服务两类来源：有 URL 的渲染成链接，没有的退回纯文本 |
+
+### 本阶段的验证点
+
+- `tests/test_school.py` —— 18 个用例分三层。Schema 层逐条验证「不替用户决定」的结构防线：
+  排序/推荐字段被拒、少于三所被拒、缺优劣势被拒、重名与 `fit_for` 雷同被拒。
+  工作流层验证工具路由、核验入口注入且**主机名只在白名单内**、联网片段进引用列表。
+  服务层验证候选重复落库幂等且保留已拍板状态、`decide_school` 是唯一写回路径、
+  跨目标的 `school_id` 被拒、归档是状态迁移而非删除。
+- `test_output_contract_declares_additional_properties_false` —— 守的是**机制**而不是行为：
+  它断言契约文本里确实有 `additionalProperties: false`。将来若有人改 `_strip_titles`
+  的行为，这条会先红 —— 否则「禁止排序字段」会静默退化成一句无人执行的散文。
+- `test_role_restates_invariants_not_visible_in_schema` —— 反向守住第三层：
+  校验器里的跨字段规则必须同时出现在 `extra_rules` 里，模型才看得见。
+- `test_candidates_stay_candidate_when_persisted` —— 走完整的
+  `run_workflow` → `persist_result` 回环，断言 `ExamTarget.target_school` 仍是空串。
+  「产品没替用户做决定」这条声明，就是靠这个断言变成可验证的事实的。
+- `tests/test_migrations.py` —— `EXPECTED_TABLES` 加 `tracked_schools` 后，
+  全新 SQLite 升级 + 完整回滚到 base 仍然通过。
+
+### 一处刻意的分层（记录原因）
+
+**把「不替用户决定」拆成四层，各管一段，而不是靠提示词一句禁令。**
+
+1. **字段根本不存在** —— `extra="forbid"`，且规则在模型看到的契约文本里可见（见上表）。
+2. **解析期的长度约束** —— `candidates` 至少三所、每所 `pros`/`cons` 各至少一条。
+3. **跨字段机械不变式** —— 只查「名称不重复」与「适用人群描述不雷同」，因为这是
+   「多个候选」塌缩成「同一个答案反复说」的**唯一两种机械方式**。**刻意不查**任何
+   「是不是有某所悄悄最优」的启发式：那类规则会在合法输出上误报，把重试预算烧光，
+   最后落到 `StructuredOutputError` —— 反而比不查更糟。
+4. **`narrative` 是自由文本，结构管不了** —— 只能靠散文，因此 `extra_rules` 里必须
+   写明不得排名、不得标注推荐、并原文承接规格那句「让决定权落在用户身上，
+   我们不能帮用户做抉择，这是一件人生大事」。
+
+**`services/targets.py` 整体不加知识点标注。** 该文件是纯粹的持久化与状态迁移
+（幂等 upsert、单 DECIDED 不变式、归档不删除），课程里没有与之对应的知识点，
+按「对不上就不标」处理。它的存在理由写在模块文档字符串里：没有这层分离，
+「产品没有替用户做决定」就只是一句无法验证的声明。
+
+### 一处更正：那个名不副实的「联网搜索」开关（记录原因）
+
+真实搜索落地之前，聊天输入框旁的地球图标写着「联网搜索」，绑的却是 `enable_retrieval`
+（本地知识库检索）—— 它从来没有搜过任何东西。当时这是个无害的措辞问题，**真搜索落地后
+它就承重了**：用户打开「联网搜索」期待的是院校情报，拿到的却是本地语料，而真正的联网
+能力反而没有入口。本阶段把它拆开：
+
+- 原地球图标改名为 **「知识库检索」**（默认开），绑定 `enable_retrieval` 不变；
+- 新增 **「联网搜索」**（默认关），经 `ChatRequest.enable_search` →
+  `WorkflowState.enable_search` → `_should_search` 落到择校情报上。
+
+默认值一开一关是刻意的：`_should_search` 与 `_should_retrieve` **各查各的配置段**，
+知识库默认可开（本地语料），联网默认关闭（需要密钥）。把两者绑在一个开关上，
+默认值就会互相打架 —— 这正是 `_should_search` 的文档字符串里写明的那条理由。
+
+**`TrackedSchool` 是全新实体，因此绕开了 SQLite 改 CHECK 的麻烦。** `enum_column`
+落在既有的 `ReminderType` 上时留了具名 CHECK，加成员必须重建表（阶段 8 的活）；
+而新实体自声明约束名，直接建新 CHECK 即可。这条分层是刻意的：**除非必要，
+不给既有枚举加成员**。
+
 ## 按章节反查代码
 
 文档落库后按章节复习时，从这里进入比按文件翻更快。
 
 | 章节 | 涉及文件 |
 | --- | --- |
-| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`tests/fakes.py` |
+| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`tests/fakes.py` |
 | 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py` |
-| 第4章 RAG Agent | `app/knowledge/*` |
+| 第4章 RAG Agent | `app/knowledge/*`、`app/search/*`、`app/prompts/context.py`（`render_retrieved` / `render_web_intel`）、`app/prompts/catalog.py`（`SCHOOL_ADVISOR_ROLE`）、`app/workflows/nodes.py`（`_run_school_advisor`）、`frontend/src/components/AgentAnswer.tsx` |
 | 第5章 LangGraph | `app/workflows/state.py`、`graph.py`、`nodes.py`、`runner.py`、`chat_agent.py`、`checkpoint.py`、`app/services/conversations.py`、`frontend/src/lib/sse.ts`、`frontend/src/components/ChatPanel.tsx`、`frontend/src/components/ConfirmationCard.tsx` |
+
+> 阶段 7 的持久化与服务层（`app/db/models/target.py` 的 `TrackedSchool`、
+> `app/services/targets.py`、`app/api/routes/targets.py`）**不在这张表里** ——
+> 它们是纯粹的落库与状态迁移，没有可对上的知识点，理由见阶段 7 的「刻意的分层」。
 
 ## 逐章复习顺序（建议）
 

@@ -10,6 +10,7 @@ from app.schemas.plan import PlanDraft, TaskBreakdown
 from app.schemas.resource import ResourcePlan
 from app.schemas.review import PlanReviewResult
 from app.schemas.revision import PlanRevision
+from app.schemas.school import SchoolAdvisorAnswer
 from app.schemas.tutoring import TutoringAnswer
 
 
@@ -76,6 +77,7 @@ class WorkflowResult(BaseModel):
     nudge: NudgeMessage | None = None
     digest: WeeklyDigest | None = None
     plan_revision: PlanRevision | None = None
+    school_advice: SchoolAdvisorAnswer | None = None
     plan_review: PlanReviewResult | None = None
 
     confirmation: PlanConfirmation | None = Field(
