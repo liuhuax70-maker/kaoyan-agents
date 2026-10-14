@@ -15,6 +15,7 @@ from app.prompts.context import (
     render_reminder,
     render_retrieved,
     render_subjects,
+    render_tracked_schools,
     render_web_intel,
     trim_history,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "render_reminder",
     "render_retrieved",
     "render_subjects",
+    "render_tracked_schools",
     "render_web_intel",
     "trim_history",
 ]

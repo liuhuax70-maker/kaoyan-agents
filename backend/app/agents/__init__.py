@@ -7,9 +7,12 @@
 """
 
 from app.agents.nudge import compose_nudge, compose_nudge_reply, compose_weekly_digest
+from app.agents.school import compose_school_brief, format_brief_content
 
 __all__ = [
     "compose_nudge",
     "compose_nudge_reply",
+    "compose_school_brief",
     "compose_weekly_digest",
+    "format_brief_content",
 ]

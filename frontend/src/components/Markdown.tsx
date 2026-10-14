@@ -17,7 +17,15 @@ import { cx } from './ui'
 export function Markdown({ children, className }: { children: string; className?: string }) {
   return (
     <div className={cx('answer-body text-[14px] leading-[1.75] text-ink', className)}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // 外部链接一律新窗口打开：简报里的核验入口是外站，留在当前页会打断学习流。
+          a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+        }}
+      >
+        {children}
+      </ReactMarkdown>
     </div>
   )
 }

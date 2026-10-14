@@ -101,6 +101,9 @@ class ReminderType(StrEnum):
     IDLE = "idle"
     """连续未学习预警。"""
 
+    SCHOOL_BRIEF = "school_brief"
+    """每日院校简报：目标院校与专业的动向，附可核验的官方入口。"""
+
 
 class ReminderChannel(StrEnum):
     """提醒渠道。"""

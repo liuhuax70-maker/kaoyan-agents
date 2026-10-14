@@ -10,7 +10,7 @@ export type TaskStatus = 'todo' | 'doing' | 'done' | 'skipped'
 export type TaskType = 'learn' | 'practice' | 'review' | 'mock'
 export type Priority = 'low' | 'medium' | 'high'
 export type StageType = 'foundation' | 'enhancement' | 'sprint' | 'mock'
-export type ReminderType = 'daily' | 'overdue' | 'idle' | 'weekly' | 'custom'
+export type ReminderType = 'daily' | 'overdue' | 'idle' | 'weekly' | 'school_brief' | 'custom'
 export type ReminderStatus = 'pending' | 'sent' | 'failed' | 'cancelled'
 
 export interface ProfileInput {

@@ -504,7 +504,14 @@ async def test_overview_exposes_roles_and_workflow(client: AsyncClient) -> None:
     assert "chat_agent" in workflow["nodes"]
     assert {item["name"] for item in workflow["tools"]} >= {"generate_plan", "revise_plan"}
 
-    assert len(body["schedule"]) == 4
+    names = {item["name"] for item in body["schedule"]}
+    assert names == {
+        "daily-reminder",
+        "overdue-nudge",
+        "idle-warning",
+        "weekly-digest",
+        "school-brief",
+    }
     assert body["capability"]["llm_provider"] == "ollama"
 
 

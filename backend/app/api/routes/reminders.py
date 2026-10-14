@@ -14,6 +14,7 @@ from app.services.reminders import (
     send_daily_reminders,
     send_idle_warnings,
     send_overdue_nudges,
+    send_school_briefs,
     send_weekly_digests,
 )
 
@@ -26,6 +27,7 @@ RUNNERS: dict[str, Runner] = {
     "overdue": send_overdue_nudges,
     "idle": send_idle_warnings,
     "weekly": send_weekly_digests,
+    "school_brief": send_school_briefs,
 }
 
 
@@ -50,7 +52,9 @@ async def list_reminders(
 @router.post("/run", summary="手动触发一轮提醒（调试与演示）")
 async def run_reminders(
     session: SessionDep,
-    kind: str = Query(default="daily", description="daily / overdue / idle / weekly"),
+    kind: str = Query(
+        default="daily", description="daily / overdue / idle / weekly / school_brief"
+    ),
 ) -> dict[str, Any]:
     """立即执行一次提醒生成与投递。
 

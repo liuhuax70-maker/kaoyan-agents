@@ -282,6 +282,19 @@ class ReminderSection(BaseModel):
     weekly_digest_weekday: int = Field(default=0, ge=0, le=6, description="0 为周一")
     weekly_digest_hour: int = Field(default=20, ge=0, le=23)
     idle_threshold_days: int = Field(default=3, ge=1, le=30)
+    """**展示**口径：连续未学习天数达到多少天时，画像里把「断签」讲出来。"""
+
+    idle_zero_days: int = Field(default=3, ge=2, le=14)
+    """**触发**口径：连续多少个「零投入日」才下发断签预警。
+
+    与 ``idle_threshold_days`` 刻意分开：前者是展示用的「距上次学习多少天」，
+    后者要求窗口内每一天都完全没有打卡。自律度低的用户不记录学习是常态，
+    只看前者会把提醒写成催办。
+    """
+
+    school_brief_hour: int = Field(default=7, ge=0, le=23)
+    """每日院校简报的触发小时；分钟数固定错开整点，见 ``celery_app.beat_schedule``。"""
+
     dispatch_batch_size: int = Field(default=200, ge=1, le=2000)
     max_retry: int = Field(default=2, ge=0, le=10)
 

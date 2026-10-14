@@ -91,6 +91,7 @@ export const REMINDER_TYPE_LABEL: Record<string, string> = {
   overdue: '逾期催办',
   idle: '断签预警',
   weekly: '周报复盘',
+  school_brief: '院校简报',
   custom: '自定义',
 }
 

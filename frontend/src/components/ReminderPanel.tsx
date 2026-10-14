@@ -4,16 +4,20 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { useWorkspace } from './WorkspaceProvider'
 import { IconBell, IconRefresh } from './icons'
+import { Markdown } from './Markdown'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Spinner } from './ui'
 import { api } from '@/lib/api'
 import { REMINDER_TYPE_LABEL, dateTime } from '@/lib/format'
 import type { ReminderRead } from '@/lib/types'
 
-const KINDS: Array<{ key: 'daily' | 'overdue' | 'idle' | 'weekly'; label: string; hint: string }> = [
+type ReminderKind = 'daily' | 'overdue' | 'idle' | 'weekly' | 'school_brief'
+
+const KINDS: Array<{ key: ReminderKind; label: string; hint: string }> = [
   { key: 'daily', label: '每日提醒', hint: '今天有待办任务时触发' },
   { key: 'overdue', label: '逾期催办', hint: '仅针对存在逾期任务的考生' },
-  { key: 'idle', label: '断签预警', hint: '连续未学习达到阈值时触发' },
+  { key: 'idle', label: '断签预警', hint: '连续多天零投入时触发' },
   { key: 'weekly', label: '周报复盘', hint: '汇总本周表现与下周重点' },
+  { key: 'school_brief', label: '院校简报', hint: '目标院校与专业的动向 + 核验入口' },
 ]
 
 export function ReminderPanel() {
@@ -44,7 +48,7 @@ export function ReminderPanel() {
     void load()
   }, [load])
 
-  const trigger = async (kind: 'daily' | 'overdue' | 'idle' | 'weekly') => {
+  const trigger = async (kind: ReminderKind) => {
     setRunning(kind)
     setNotice(null)
     setError(null)
@@ -87,7 +91,7 @@ export function ReminderPanel() {
           </div>
         )}
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           {KINDS.map((kind) => (
             <button
               key={kind.key}
@@ -146,9 +150,9 @@ export function ReminderPanel() {
                   </span>
                 </div>
                 <p className="mt-2 text-[13px] font-medium text-ink">{reminder.title}</p>
-                <p className="mt-1 whitespace-pre-wrap text-[11px] leading-relaxed text-ink-muted">
-                  {reminder.content}
-                </p>
+                <div className="mt-1 text-ink-muted">
+                  <Markdown>{reminder.content}</Markdown>
+                </div>
               </li>
             ))}
           </ul>

@@ -239,7 +239,7 @@ export const api = {
   listReminders: (userId: number, limit = 20) =>
     request<ReminderRead[]>(`/api/reminders?user_id=${userId}&limit=${limit}`),
 
-  runReminders: (kind: 'daily' | 'overdue' | 'idle' | 'weekly') =>
+  runReminders: (kind: 'daily' | 'overdue' | 'idle' | 'weekly' | 'school_brief') =>
     request<Record<string, unknown>>(`/api/reminders/run?kind=${kind}`, { method: 'POST' }),
 
   // ---- 看板 ----

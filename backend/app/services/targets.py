@@ -10,12 +10,19 @@
 放在路由里既测不动也会被下一条路由复制一遍。
 """
 
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.timeutil import utc_now
 from app.db.models import ExamTarget, TrackedSchool, TrackedSchoolStatus
-from app.schemas import SchoolAdvisorAnswer, SchoolCandidate
+from app.schemas import (
+    SchoolAdvisorAnswer,
+    SchoolCandidate,
+    TrackedSchoolSnapshot,
+)
 
 logger = get_logger(__name__)
 
@@ -112,6 +119,46 @@ async def upsert_candidates(
         len(rows),
     )
     return rows
+
+
+def tracked_schools_as_snapshots(
+    rows: Sequence[TrackedSchool],
+) -> list[TrackedSchoolSnapshot]:
+    """把候选院校 ORM 转成提示词用的快照。
+
+    ``app/agents/*`` 只依赖快照而非 ORM（见 ``app/services/snapshots.py``），
+    简报的提示词组装因此能脱离数据库单测。快照读 ``snapshot`` 里的冻结字段，
+    而不是重新调用模型：同一所院校的优劣势在生成时是什么样，简报里就是什么样。
+    """
+
+    return [
+        TrackedSchoolSnapshot(
+            name=row.name,
+            major=row.major,
+            status=row.status.value,
+            fit_for=str((row.snapshot or {}).get("fit_for", "")),
+            pros=list((row.snapshot or {}).get("pros", [])),
+            cons=list((row.snapshot or {}).get("cons", [])),
+        )
+        for row in rows
+    ]
+
+
+async def mark_briefed(session: AsyncSession, *, school_ids: Sequence[int]) -> None:
+    """把纳入本次简报的候选院校盖上时间戳。
+
+    这个时间戳将来用于「同一所院校避免反复简报」的调权；现在只记录，
+    不参与筛选——院校每天的动向都可能不同，不因昨天简报过今天就跳过。
+    """
+
+    if not school_ids:
+        return
+    statement = (
+        select(TrackedSchool).where(TrackedSchool.id.in_(school_ids))
+    )
+    for row in await session.scalars(statement):
+        row.last_briefed_at = utc_now()
+    await session.flush()
 
 
 async def decide_school(

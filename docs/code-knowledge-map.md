@@ -363,15 +363,73 @@
 而新实体自声明约束名，直接建新 CHECK 即可。这条分层是刻意的：**除非必要，
 不给既有枚举加成员**。
 
+## 阶段 8：每日院校简报 + 断签放宽
+
+验收标准 2 要求「**每天**返回目标考研院校目标专业的情况，且**给出链接**让用户确认
+真实情况」。本阶段把它落成第五类提醒 `school_brief`；同时把「断签预警」的触发口径
+从「距上次学习多少天」换成「连续多少天零投入」—— 前者是展示口径，拿它当触发条件
+会把手握低自律度用户的提醒写成催办。
+
+| 代码位置 | 板块 | 知识点 | 文档定位 | 一句话原理 |
+| --- | --- | --- | --- | --- |
+| `agents/school.py` · `compose_school_brief` | 结构化输出 | 双轨信封只对 `SUBAGENT_TASKS` 生效 | 第2章 LangChain 核心组件·结构化输出 | 简报只有 Celery 路径消费、只要结构化数据，因此走 `invoke_agent_task`（输出模型就是 `SchoolBrief` 本体），与 `compose_weekly_digest` 同形 |
+| `agents/school.py` · `format_brief_content` | 幻觉抑制 | 可核验链接不交给模型生成 | 第4章 RAG Agent | 核验入口由系统按确定性规则拼成 markdown，模型只能给文字建议；「每天给链接」这条验收因此不取决于模型是否听话 |
+| `services/reminders.py` · `_create_school_brief_reminder` | 降级契约 | 增强能力失败不中断主链路 | 第4章 RAG Agent·构建知识库 | 联网情报失败时照常投递，因为核验入口由 `official_entry_links` 保证在场 —— 「没搜到」不等于「没简报」 |
+| `services/snapshots.py` · `consecutive_zero_days` | 督促触发口径 | 触发用「连续零投入」而非「距上次学习天数」；且不打扰还没起步的用户 | 第3章 Agent 进阶 | 自律度低的用户隔三差五不打卡是常态，只看展示口径会写成催办；新口径要求窗口内每一天都没有 `actual_minutes > 0` 的打卡，而 `StudyStreak` 缺失或 `last_study_date` 为空时一律返回 0（不预警） |
+| `frontend/src/components/ReminderPanel.tsx`、`Markdown.tsx` | 引用与溯源 | 链接必须真的可点 | 第4章 RAG Agent | 站内信此前是纯文本渲染，简报里的核验入口会退化成死文本；改走 `Markdown` 并给外链加 `target="_blank"`，「给出链接」这条验收才在界面上成立 |
+
+### 本阶段的验证点
+
+- `tests/test_tasks.py::test_school_brief_task_generates_and_delivers` —— eager 链路走完
+  「找跟踪院校 → 生成 → 落库 → 投递」，断言提醒类型为 `SCHOOL_BRIEF`、内容里含 markdown
+  链接语法（`](http`）。
+- `tests/test_tasks.py::test_school_brief_falls_back_to_official_links_when_search_degraded`
+  —— 默认搜索关着，简报照投，且研招网入口必须在场。
+- `tests/test_services.py` 三个断签用例 —— 分别钉住「两天前有打卡、但上次学习记录停在 5 天前
+  → 只算 2 天（旧的展示口径会误报 5 ≥ 3）」、尾部连续 3 天零投入 → 返回 3、无 `StudyStreak`
+  → 返回 0。
+- `tests/test_migrations.py` —— 全新 SQLite 升级 + 完整回滚到 base 仍然通过，兜住本阶段
+  唯一带破坏性的迁移。
+- `tests/test_api.py::test_overview_exposes_roles_and_workflow` —— `/api/overview` 的
+  `schedule` 从四项变五项，用例改成断言集合相等，漏登记 beat 条目会立刻红。
+
+### 一处刻意的取舍（记录原因）
+
+**断签阈值新增 `idle_zero_days`，而不挪用既有的 `idle_threshold_days`。** 两者口径不同：
+`idle_threshold_days` 是**展示**口径（`render_learner` 打印「连续未学习 N 天」，且被既有
+测试引用），`idle_zero_days` 是**触发**口径（连续零投入天数）。共用一个字段会让「给用户看的
+数字」与「决定要不要打扰他的阈值」悄悄耦合 —— 改其中一个会莫名其妙地动到另一个。
+
+**`consecutive_zero_days` 的窗口锚在调用方传入的 `today`，而不是「此刻」。** 否则调用方
+传固定日期做确定性测试时，窗口起点会漂到真实时间的今天去，用例会随运行日期时红时绿。
+
+**「两天前有打卡但上次学习记录在 5 天前」这个用例是刻意构造的。** 它正好落在新旧口径
+分叉的那条缝上：旧口径读 `idle_days = 5 ≥ 3` 会误报，新口径读打卡只算 2 天、不打扰。
+没有这个用例，改口径这件事在测试里就是不可见的。
+
+**给既有枚举加成员是唯一带破坏性的迁移，因此「除非必要不加成员」升级为一条纪律。**
+`TrackedSchool`（阶段 7）是全新实体，自声明约束名即可直接建新 CHECK；而
+`ReminderType.SCHOOL_BRIEF` 落在既有列上，必须 `batch_alter_table(recreate="always")`
+重建整张 `reminders` 表 —— 这也是本次三处迁移里唯一需要在 downgrade 里先
+`DELETE` 存量新成员行的原因：枚举收窄后它们过不了新表的 CHECK，拷贝数据那一步会整条
+失败，而不是「少几行」。
+
+**迁移里的枚举 CHECK 重建不加知识点标注。** `batch_alter_table` 是 SQLite 的存储机制，
+课程里没有与之对应的知识点；理由写在迁移文件自身的模块文档字符串里。判据同阶段 7 的
+`services/targets.py`：**对不上就不标**。
+
+**Celery beat 的错峰（`school-brief` 取 `:15`）同样不标知识点。** 它是调度工程而非
+LangChain/LangGraph 概念，理由留在 `celery_app.py` 的普通注释里，不占对照表的一行。
+
 ## 按章节反查代码
 
 文档落库后按章节复习时，从这里进入比按文件翻更快。
 
 | 章节 | 涉及文件 |
 | --- | --- |
-| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`tests/fakes.py` |
-| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py` |
-| 第4章 RAG Agent | `app/knowledge/*`、`app/search/*`、`app/prompts/context.py`（`render_retrieved` / `render_web_intel`）、`app/prompts/catalog.py`（`SCHOOL_ADVISOR_ROLE`）、`app/workflows/nodes.py`（`_run_school_advisor`）、`frontend/src/components/AgentAnswer.tsx` |
+| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`app/agents/school.py`、`tests/fakes.py` |
+| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py`、`app/services/snapshots.py`（`consecutive_zero_days`） |
+| 第4章 RAG Agent | `app/knowledge/*`、`app/search/*`、`app/prompts/context.py`（`render_retrieved` / `render_web_intel`）、`app/prompts/catalog.py`（`SCHOOL_ADVISOR_ROLE`）、`app/workflows/nodes.py`（`_run_school_advisor`）、`app/agents/school.py`、`frontend/src/components/AgentAnswer.tsx`、`frontend/src/components/Markdown.tsx`、`frontend/src/components/ReminderPanel.tsx` |
 | 第5章 LangGraph | `app/workflows/state.py`、`graph.py`、`nodes.py`、`runner.py`、`chat_agent.py`、`checkpoint.py`、`app/services/conversations.py`、`frontend/src/lib/sse.ts`、`frontend/src/components/ChatPanel.tsx`、`frontend/src/components/ConfirmationCard.tsx` |
 
 > 阶段 7 的持久化与服务层（`app/db/models/target.py` 的 `TrackedSchool`、

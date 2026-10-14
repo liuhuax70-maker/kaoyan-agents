@@ -1,13 +1,15 @@
 """提醒督促服务：生成、落库与投递。
 
-四类提醒对应四种督促场景：
+五类提醒对应五种督促场景：
 - daily：今日任务提醒；
 - overdue：逾期催办；
-- idle：连续未学习预警；
-- weekly：周报复盘。
+- idle：连续零投入预警；
+- weekly：周报复盘；
+- school_brief：每日院校简报（目标院校与专业的动向 + 官方核验入口）。
 
-生成环节统一走 ``app.agents.compose_nudge`` / ``compose_weekly_digest``，
-提示词只有一份实现；定时链路只要结构化结果，因此丢掉双轨信封里的正文一轨。
+生成环节统一走 ``app.agents.compose_nudge`` / ``compose_weekly_digest`` /
+``compose_school_brief``，提示词只有一份实现；定时链路只要结构化结果，
+因此丢掉双轨信封里的正文一轨。
 """
 
 from dataclasses import dataclass, field
@@ -15,23 +17,39 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import compose_nudge, compose_weekly_digest
+from app.agents import (
+    compose_nudge,
+    compose_school_brief,
+    compose_weekly_digest,
+    format_brief_content,
+)
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.timeutil import utc_now, utc_today
 from app.db.models import (
+    ExamTarget,
     Reminder,
     ReminderChannel,
     ReminderStatus,
     ReminderType,
     StudyTask,
+    TrackedSchool,
+    TrackedSchoolStatus,
 )
 from app.schemas import LearnerSnapshot, ReminderSnapshot
+from app.search.base import gather_school_intel
 from app.services.snapshots import (
     active_user_ids,
     collect_user_tasks,
+    consecutive_zero_days,
     load_latest_plan_snapshot,
     load_learner_snapshot,
+    load_primary_target,
+)
+from app.services.targets import (
+    list_tracked_schools,
+    mark_briefed,
+    tracked_schools_as_snapshots,
 )
 
 logger = get_logger(__name__)
@@ -108,6 +126,67 @@ async def _create_nudge_reminder(
     )
     session.add(reminder)
     await session.flush()
+    return reminder
+
+
+def _brief_query(school: str, major: str, tracked: list[TrackedSchool]) -> str:
+    """构造每日院校简报的联网搜索词。
+
+    优先搜用户已经拍板的那所（``target.target_school``），还没拍板时
+    用最前面的几所候选一起搜——决策之前的跟踪期，恰恰是简报最有价值的时段。
+    """
+
+    if school:
+        focus = " ".join(filter(None, [school, major]))
+    else:
+        names = " ".join(row.name for row in tracked[:3])
+        focus = names
+    return f"{focus} 考研 招生".strip()
+
+
+# 知识点：增强能力的降级不中断主链路 —— 简报的联网情报失败时照常投递，核验入口由
+#   ``official_entry_links`` 保证仍在，因此「没搜到」不等于「没简报」（第4章 RAG Agent·构建知识库）
+async def _create_school_brief_reminder(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    learner: LearnerSnapshot,
+    target: ExamTarget,
+    tracked: list[TrackedSchool],
+    search_enabled: bool,
+    provider: str | None,
+) -> Reminder:
+    """生成一条每日院校简报并落库，随后把简报过的候选盖上时间戳。"""
+
+    school = target.target_school or tracked[0].name
+    major = target.target_major or tracked[0].major
+    intel = await gather_school_intel(
+        _brief_query(target.target_school, target.target_major, tracked),
+        school=school,
+        major=major,
+        enabled=search_enabled,
+    )
+
+    brief = await compose_school_brief(
+        learner,
+        tracked=tracked_schools_as_snapshots(tracked),
+        intel=intel,
+        provider=provider,
+    )
+    content = format_brief_content(brief, intel.links)
+
+    reminder = Reminder(
+        user_id=user_id,
+        reminder_type=ReminderType.SCHOOL_BRIEF,
+        channel=ReminderChannel.IN_APP,
+        title=(brief.title or "今日院校简报")[:200],
+        content=content,
+        scheduled_at=utc_now(),
+        status=ReminderStatus.PENDING,
+    )
+    session.add(reminder)
+    await session.flush()
+    await mark_briefed(session, school_ids=[row.id for row in tracked])
     return reminder
 
 
@@ -260,15 +339,22 @@ async def send_idle_warnings(
     today: date | None = None,
     provider: str | None = None,
 ) -> ReminderResult:
-    """对连续未学习达到阈值的用户下发预警。"""
+    """对连续多日「完全零投入」的用户下发预警。
+
+    门槛用 ``consecutive_zero_days`` 而不是 ``progress.idle_days``：
+    后者是「距上次学习多少天」的展示口径，自律度低的用户隔三差五不打卡是常态，
+    只看它会写成催办。这里要求窗口内每一天都没有任何 ``actual_minutes > 0`` 的打卡，
+    才真正叫「断了」，才值得轻轻提醒一句。
+    """
 
     reference = today or utc_today()
-    threshold = get_settings().reminder.idle_threshold_days
+    threshold = get_settings().reminder.idle_zero_days
     result = ReminderResult()
 
     for user_id in await active_user_ids(session):
         learner = await load_learner_snapshot(session, user_id, today=reference)
-        if learner is None or learner.progress.idle_days < threshold:
+        zero_days = await consecutive_zero_days(session, user_id, today=reference)
+        if learner is None or zero_days < threshold:
             result.skipped += 1
             continue
 
@@ -286,6 +372,64 @@ async def send_idle_warnings(
         except Exception as exc:  # noqa: BLE001
             result.failed += 1
             result.errors.append(f"user={user_id} 生成断签预警失败：{exc}")
+            continue
+
+        result.generated += 1
+        if await deliver(session, reminder):
+            result.delivered += 1
+
+    return result
+
+
+async def send_school_briefs(
+    session: AsyncSession,
+    *,
+    today: date | None = None,
+    provider: str | None = None,
+) -> ReminderResult:
+    """为跟踪着院校的用户生成并投递每日院校简报。
+
+    逐用户 try/except：单个用户失败不拖垮整批。没有在跟踪的院校就跳过——
+    简报要说的就是「跟踪中的那几所」的情况，没有 watch-list 就无简报可言。
+    """
+
+    reference = today or utc_today()
+    search_enabled = get_settings().search.enabled
+    result = ReminderResult()
+
+    for user_id in await active_user_ids(session):
+        learner = await load_learner_snapshot(session, user_id, today=reference)
+        if learner is None:
+            result.skipped += 1
+            continue
+
+        target = await load_primary_target(session, user_id)
+        if target is None:
+            result.skipped += 1
+            continue
+
+        tracked = [
+            row
+            for row in await list_tracked_schools(session, target_id=target.id)
+            if row.status is not TrackedSchoolStatus.ARCHIVED
+        ]
+        if not tracked:
+            result.skipped += 1
+            continue
+
+        try:
+            reminder = await _create_school_brief_reminder(
+                session,
+                user_id=user_id,
+                learner=learner,
+                target=target,
+                tracked=tracked,
+                search_enabled=search_enabled,
+                provider=provider,
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.failed += 1
+            result.errors.append(f"user={user_id} 生成院校简报失败：{exc}")
             continue
 
         result.generated += 1

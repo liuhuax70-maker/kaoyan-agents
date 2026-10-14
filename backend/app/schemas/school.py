@@ -108,6 +108,22 @@ class SchoolAdvisorAnswer(BaseModel):
         return self
 
 
+class TrackedSchoolSnapshot(BaseModel):
+    """watch-list 里的一所院校，供提示词渲染使用。
+
+    有这一层是因为 ``app/agents/*`` 只依赖快照而不依赖 ORM（见
+    ``app/services/snapshots.py`` 的模块文档）：简报的提示词组装因此可以
+    脱离数据库单测，``TrackedSchool`` 改列也不会渗透进智能体逻辑。
+    """
+
+    name: str
+    major: str = ""
+    status: str = "candidate"
+    fit_for: str = ""
+    pros: list[str] = Field(default_factory=list)
+    cons: list[str] = Field(default_factory=list)
+
+
 class SchoolBrief(BaseModel):
     """每日院校简报的结构化内容。"""
 

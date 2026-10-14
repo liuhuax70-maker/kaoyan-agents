@@ -19,6 +19,7 @@ from app.prompts.catalog import (
     RESOURCE_ROLE,
     REVIEWER_ROLE,
     SCHOOL_ADVISOR_ROLE,
+    SCHOOL_BRIEF_ROLE,
     AgentRole,
 )
 from app.prompts.catalog import TUTOR_ROLE as TUTOR_ROLE_DEF
@@ -251,8 +252,8 @@ PROMPT_SPECS: dict[AgentTask, PromptSpec] = {
     ),
     AgentTask.SCHOOL_BRIEF: PromptSpec(
         task=AgentTask.SCHOOL_BRIEF,
-        role=SCHOOL_ADVISOR_ROLE,
-        template=_make(SCHOOL_ADVISOR_ROLE, SCHOOL_BRIEF_USER_TEMPLATE),
+        role=SCHOOL_BRIEF_ROLE,
+        template=_make(SCHOOL_BRIEF_ROLE, SCHOOL_BRIEF_USER_TEMPLATE),
         required_variables=("learner_context", "tracked_context", "retrieved_context"),
     ),
 }

@@ -1,6 +1,6 @@
 """服务层测试：快照构建与计划落库。"""
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,7 @@ from app.db.models import (
     StudyTask,
     Subject,
     TargetStatus,
+    TaskProgress,
     TaskStatus,
     User,
 )
@@ -33,6 +34,7 @@ from app.services import (
 )
 from app.services.conversations import load_history
 from app.services.plans import persist_plan_draft
+from app.services.snapshots import consecutive_zero_days
 
 TODAY = date(2026, 10, 10)
 
@@ -96,7 +98,9 @@ def _draft(horizon: int = 60) -> PlanDraft:
     )
 
 
-async def _seed(session: AsyncSession, *, idle_days: int = 0) -> dict[str, int]:
+async def _seed(
+    session: AsyncSession, *, idle_days: int = 0, with_streak: bool = True
+) -> dict[str, int]:
     user = User(username="xiaoyan", nickname="小研", email="xiaoyan@example.com")
     user.profile = LearnerProfile(
         base_level="一般", daily_hours=6.0, attention_span=60, self_discipline=4
@@ -121,18 +125,55 @@ async def _seed(session: AsyncSession, *, idle_days: int = 0) -> dict[str, int]:
             Subject(target_id=target.id, name="英语", order_index=1),
         ]
     )
+    if with_streak:
+        session.add(
+            StudyStreak(
+                user_id=user.id,
+                current_streak=5,
+                longest_streak=9,
+                last_study_date=datetime.combine(
+                    TODAY - timedelta(days=idle_days), datetime.min.time()
+                ),
+            )
+        )
+    await session.commit()
+    return {"user": user.id, "target": target.id}
+
+
+async def _add_progress(
+    session: AsyncSession, user_id: int, target_id: int, *, days_ago: int, minutes: int = 30
+) -> None:
+    """补一条 ``days_ago`` 天前的打卡记录，供断签口径用例使用。"""
+
+    plan = StudyPlan(
+        user_id=user_id,
+        target_id=target_id,
+        title="打卡计划",
+        horizon_days=60,
+        start_date=TODAY - timedelta(days=30),
+        end_date=TODAY + timedelta(days=30),
+    )
+    session.add(plan)
+    await session.flush()
+
+    task = StudyTask(
+        plan_id=plan.id,
+        user_id=user_id,
+        title="每日打卡任务",
+        planned_date=TODAY,
+    )
+    session.add(task)
+    await session.flush()
+
     session.add(
-        StudyStreak(
-            user_id=user.id,
-            current_streak=5,
-            longest_streak=9,
-            last_study_date=datetime.combine(
-                TODAY - timedelta(days=idle_days), datetime.min.time()
-            ),
+        TaskProgress(
+            task_id=task.id,
+            user_id=user_id,
+            actual_minutes=minutes,
+            created_at=datetime.combine(TODAY - timedelta(days=days_ago), time(20, 0)),
         )
     )
     await session.commit()
-    return {"user": user.id, "target": target.id}
 
 
 async def test_load_learner_snapshot_includes_target_and_subjects(app_db: AsyncSession) -> None:
@@ -168,6 +209,34 @@ async def test_active_user_ids_only_returns_preparing(app_db: AsyncSession) -> N
     ids = await _seed(app_db)
 
     assert await active_user_ids(app_db) == [ids["user"]]
+
+
+# 知识点：断签触发口径 —— 触发用「连续零投入」而非展示用的「距上次学习天数」，
+#   隔三差五不打卡是自律度低用户的常态，只看后者会把提醒写成催办（第3章 Agent进阶）
+async def test_consecutive_zero_days_counts_actual_study_not_idle_gap(app_db: AsyncSession) -> None:
+    """旧口径看「距上次学习 5 天」会误报；新口径看打卡，2 天前学过就只算 2 天断签。"""
+
+    ids = await _seed(app_db, idle_days=5)
+    await _add_progress(app_db, ids["user"], ids["target"], days_ago=2)
+
+    assert await consecutive_zero_days(app_db, ids["user"], today=TODAY) == 2
+
+
+async def test_consecutive_zero_days_reaches_tail_of_three(app_db: AsyncSession) -> None:
+    """连续 3 天零投入（第 4 天有打卡）→ 返回 3，命中预警门槛。"""
+
+    ids = await _seed(app_db, idle_days=3)
+    await _add_progress(app_db, ids["user"], ids["target"], days_ago=3)
+
+    assert await consecutive_zero_days(app_db, ids["user"], today=TODAY) == 3
+
+
+async def test_consecutive_zero_days_skips_never_started(app_db: AsyncSession) -> None:
+    """无 StudyStreak（从未开始学）返回 0，即不预警——不打扰还没起步的用户。"""
+
+    ids = await _seed(app_db, with_streak=False)
+
+    assert await consecutive_zero_days(app_db, ids["user"], today=TODAY) == 0
 
 
 async def _seed_conversation(

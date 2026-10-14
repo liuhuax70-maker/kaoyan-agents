@@ -48,6 +48,11 @@ celery_app.conf.update(
                 minute=0,
             ),
         },
+        # 分钟固定 15，刻意与 daily-reminder（:00）错开，避免两个批量任务同时开火。
+        "school-brief": {
+            "task": "kaoyan.school_brief",
+            "schedule": crontab(hour=reminder.school_brief_hour, minute=15),
+        },
     },
 )
 

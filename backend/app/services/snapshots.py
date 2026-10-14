@@ -4,13 +4,13 @@
 表结构调整也不会渗透进智能体逻辑。
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.timeutil import days_ago, utc_today
+from app.core.timeutil import day_start, days_ago, utc_today
 from app.db.models import (
     ExamTarget,
     PlanStatus,
@@ -32,6 +32,9 @@ from app.schemas import (
 
 RECENT_WINDOW_DAYS = 7
 ACTIVE_TASK_STATES = (TaskStatus.TODO, TaskStatus.DOING)
+
+ZERO_WINDOW_DAYS = 14
+"""回溯多少天来找「投入日」。断签门槛最长为 14 天，窗口与它对齐。"""
 
 
 async def load_primary_target(session: AsyncSession, user_id: int) -> ExamTarget | None:
@@ -110,6 +113,51 @@ def _idle_days(streak: StudyStreak | None, reference: date) -> int:
     last_study = streak.last_study_date
     last_date = last_study.date() if hasattr(last_study, "date") else last_study
     return max((reference - last_date).days, 0)
+
+
+# 知识点：督促触发口径 —— 触发用「连续零投入」而非展示用的「距上次学习天数」，
+#   自律度低的用户隔三差五不打卡是常态，只看后者会把提醒写成催办（第3章 Agent进阶）
+async def consecutive_zero_days(
+    session: AsyncSession,
+    user_id: int,
+    *,
+    today: date | None = None,
+    window: int = ZERO_WINDOW_DAYS,
+) -> int:
+    """从今天往回数，连续多少个「零投入日」。
+
+    与 ``_idle_days`` 的口径区别是这条的要害：``_idle_days`` 看的是
+    **距上次学习多少天**（展示用），这里要求窗口内的每一天都**完全没有打卡**
+    （触发用）。自律度低的用户隔三差五不打卡是常态，只看前者会把提醒写成催办。
+
+    ``StudyStreak`` 缺失或 ``last_study_date`` 为空时返回 ``0``（即不预警）：
+    这是有意保留的现状 —— 从不打扰还没起步的用户，骚扰最该被照顾的那批人
+    是最坏的结果。返回 ``0`` 同时表示「今天学过」，两者都该跳过，因此不必区分。
+    """
+
+    reference = today or utc_today()
+    streak = await session.scalar(select(StudyStreak).where(StudyStreak.user_id == user_id))
+    if streak is None or streak.last_study_date is None:
+        return 0
+
+    # 窗口锚在 ``reference`` 而不是「此刻」：调用方传入固定日期做确定性测试时，
+    # 口径才一致（否则窗口起点会漂到真实时间的今天去）。
+    cutoff = days_ago(window, reference=day_start(reference))
+    studied_days = {
+        stamp.date() if hasattr(stamp, "date") else stamp
+        for stamp in await session.scalars(
+            select(TaskProgress.created_at).where(
+                TaskProgress.user_id == user_id,
+                TaskProgress.created_at >= cutoff,
+                TaskProgress.actual_minutes > 0,
+            )
+        )
+    }
+
+    zero_days = 0
+    while zero_days < window and (reference - timedelta(days=zero_days)) not in studied_days:
+        zero_days += 1
+    return zero_days
 
 
 async def load_learner_snapshot(

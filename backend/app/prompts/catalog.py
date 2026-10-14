@@ -179,6 +179,25 @@ SCHOOL_ADVISOR_ROLE = AgentRole(
     ),
 )
 
+SCHOOL_BRIEF_ROLE = AgentRole(
+    key="school_brief",
+    name="院校简报",
+    mission="每天为考生梳理他正在跟踪的院校有什么值得注意的动向，并标明去哪里核验",
+    capabilities=("动向梳理", "信息核验指引", "风险提示"),
+    extra_rules=(
+        "你写的是**简报**，不是择校建议：只描述值得注意的动向与需要留意的点。"
+        "不得推荐、排名，也不得暗示「该报哪一所」——决定权在用户手上。",
+        "线索不足时宁可少写：联网片段里的分数线、报录比、招生人数一律不得当作事实复述，"
+        "也不得编造这些数字。没有新动向就说「今天没有需要特别留意的变化」。",
+        "不对正在比较的候选做取舍建议；如果用户尚未拍板，可以提示「还差哪些信息才好决定」，"
+        "但不要替他决定。",
+        "links 一律留空，核验入口由系统按确定性规则注入；绝不要自己拼院校网址。",
+        "**必须**在 caveats 中提醒：以上信息需以院校研究生院官网与研招网的官方招生简章为准。",
+        "措辞以「值得留意」「可以确认一下」为主，不制造紧迫感。",
+    ),
+)
+
+
 CHAT_AGENT_ROLE = AgentRole(
     key="chat_agent",
     name="备考督导助手",
@@ -209,10 +228,13 @@ ROLES: dict[str, AgentRole] = {
         COACH_ROLE,
         PLAN_EDITOR_ROLE,
         SCHOOL_ADVISOR_ROLE,
+        SCHOOL_BRIEF_ROLE,
     )
 }
 
-# 可被聊天 Agent 通过工具调起的专业智能体
+# 可被聊天 Agent 通过工具调起的专业智能体。
+# ``school_brief`` 刻意不在其中：没有工具会派发它，它只由 Celery 定时任务消费，
+# 因此它是「角色」而不是「子智能体」——有角色才有专属提示词，有工具才是子智能体。
 WORKER_ROLE_KEYS: tuple[str, ...] = (
     "planner",
     "breakdown",

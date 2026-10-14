@@ -16,6 +16,7 @@ from app.services.reminders import (
     send_daily_reminders,
     send_idle_warnings,
     send_overdue_nudges,
+    send_school_briefs,
     send_weekly_digests,
 )
 from app.tasks.celery_app import celery_app
@@ -83,3 +84,10 @@ def weekly_digest() -> dict[str, Any]:
     """周报复盘：汇总本周表现并给出下周重点。"""
 
     return _execute("weekly_digest", send_weekly_digests)
+
+
+@celery_app.task(name="kaoyan.school_brief")
+def school_brief() -> dict[str, Any]:
+    """每日院校简报：目标院校与专业的动向 + 官方核验入口。"""
+
+    return _execute("school_brief", send_school_briefs)

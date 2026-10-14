@@ -14,7 +14,12 @@ from app.schemas.plan import PlanDraft, StageDraft, TaskBreakdown, TaskDraft
 from app.schemas.resource import ResourceItem, ResourcePlan
 from app.schemas.review import PlanReviewIssue, PlanReviewResult
 from app.schemas.revision import PlanRevision, PlanRevisionOp, RevisionAction
-from app.schemas.school import SchoolAdvisorAnswer, SchoolBrief, SchoolCandidate
+from app.schemas.school import (
+    SchoolAdvisorAnswer,
+    SchoolBrief,
+    SchoolCandidate,
+    TrackedSchoolSnapshot,
+)
 from app.schemas.subagent import SubagentReply, envelope_for
 from app.schemas.tutoring import TutoringAnswer
 
@@ -43,6 +48,7 @@ __all__ = [
     "TaskBreakdown",
     "TaskDraft",
     "TaskSnapshot",
+    "TrackedSchoolSnapshot",
     "TutoringAnswer",
     "WeeklyDigest",
     "envelope_for",

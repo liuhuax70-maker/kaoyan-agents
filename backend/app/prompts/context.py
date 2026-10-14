@@ -7,8 +7,20 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.knowledge.types import RetrievedChunk
-from app.schemas import LearnerSnapshot, PlanDraft, PlanSnapshot, ReminderSnapshot
+from app.schemas import (
+    LearnerSnapshot,
+    PlanDraft,
+    PlanSnapshot,
+    ReminderSnapshot,
+    TrackedSchoolSnapshot,
+)
 from app.search.types import OfficialLink, SchoolIntel
+
+TRACKED_STATUS_LABELS = {
+    "candidate": "候选",
+    "decided": "用户已选定",
+    "archived": "已放弃",
+}
 
 MAX_TASK_LINES = 20
 NO_DATA = "- （暂无数据）"
@@ -186,6 +198,31 @@ def render_web_intel(intel: SchoolIntel) -> str:
         snippet = item.snippet[:MAX_INTEL_SNIPPET]
         blocks.append(f"[{index}] {item.title}｜{item.url}\n{snippet}")
     return "\n\n".join(blocks)
+
+
+def render_tracked_schools(schools: Sequence[TrackedSchoolSnapshot]) -> str:
+    """渲染用户正在跟踪的院校，供每日简报对照。
+
+    带上状态：用户已经拍板的那一所与仍在比较的候选，简报的关注点不同 ——
+    前者要看「有没有影响报考的动向」，后者要看「还差什么信息才能决定」。
+    """
+
+    if not schools:
+        return NO_DATA
+
+    lines: list[str] = []
+    for item in schools:
+        label = TRACKED_STATUS_LABELS.get(item.status, item.status)
+        head = " ".join(filter(None, [item.name, item.major]))
+        parts = [f"{head}｜{label}"]
+        if item.fit_for:
+            parts.append(f"适用人群：{item.fit_for}")
+        if item.pros:
+            parts.append(f"已知优势：{'；'.join(item.pros[:3])}")
+        if item.cons:
+            parts.append(f"已知代价：{'；'.join(item.cons[:3])}")
+        lines.append("；".join(parts))
+    return _bullets(lines)
 
 
 def render_official_links(links: Sequence[OfficialLink]) -> str:
