@@ -29,6 +29,7 @@ from app.schemas import (
     SubjectSnapshot,
     TaskSnapshot,
 )
+from app.services.scheduling import order_tasks
 
 RECENT_WINDOW_DAYS = 7
 ACTIVE_TASK_STATES = (TaskStatus.TODO, TaskStatus.DOING)
@@ -232,10 +233,11 @@ async def load_plan_snapshot(session: AsyncSession, plan_id: int) -> PlanSnapsho
 
     tasks = list(
         await session.scalars(
-            select(StudyTask)
-            .where(StudyTask.plan_id == plan_id)
-            .options(selectinload(StudyTask.subject), selectinload(StudyTask.stage))
-            .order_by(StudyTask.planned_date, StudyTask.order_index, StudyTask.id)
+            order_tasks(
+                select(StudyTask)
+                .where(StudyTask.plan_id == plan_id)
+                .options(selectinload(StudyTask.subject), selectinload(StudyTask.stage))
+            )
         )
     )
 
@@ -279,9 +281,12 @@ async def collect_user_tasks(
     reference = today or utc_today()
     tasks = list(
         await session.scalars(
-            select(StudyTask)
-            .where(StudyTask.user_id == user_id, StudyTask.status.in_(ACTIVE_TASK_STATES))
-            .order_by(StudyTask.planned_date, StudyTask.order_index, StudyTask.id)
+            order_tasks(
+                select(StudyTask).where(
+                    StudyTask.user_id == user_id,
+                    StudyTask.status.in_(ACTIVE_TASK_STATES),
+                )
+            )
         )
     )
 

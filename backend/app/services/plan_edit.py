@@ -61,13 +61,15 @@ async def load_plan(session: AsyncSession, plan_id: int) -> StudyPlan | None:
     return await session.scalar(select(StudyPlan).where(StudyPlan.id == plan_id))
 
 
-async def _subject_index(session: AsyncSession, target_id: int) -> dict[str, int]:
-    """返回该目标下科目名称到主键的映射。"""
+async def _find_subject(session: AsyncSession, target_id: int, name: str) -> Subject | None:
+    """按名称取科目对象；名称留空或对不上时返回 ``None``。"""
 
-    rows = await session.execute(
-        select(Subject.name, Subject.id).where(Subject.target_id == target_id)
+    needle = name.strip()
+    if not needle:
+        return None
+    return await session.scalar(
+        select(Subject).where(Subject.target_id == target_id, Subject.name == needle)
     )
-    return dict(rows.all())
 
 
 def match_task(plan: StudyPlan, title: str) -> StudyTask | None:
@@ -108,11 +110,12 @@ async def create_task(
     duration_minutes: int = 60,
     priority: Priority = Priority.MEDIUM,
     task_type: TaskType = TaskType.LEARN,
+    slot: str | None = None,
 ) -> StudyTask:
     """在计划中新增一个任务。"""
 
     stage = match_stage(plan, stage_name)
-    subjects = await _subject_index(session, plan.target_id)
+    subject_row = await _find_subject(session, plan.target_id, subject)
     resolved_date = planned_date or plan.start_date
 
     same_day = await session.scalar(
@@ -124,7 +127,9 @@ async def create_task(
     task = StudyTask(
         plan_id=plan.id,
         stage_id=stage.id if stage else None,
-        subject_id=subjects.get(subject.strip()),
+        # 直接挂对象而不是写 subject_id：这样新建出来的任务立刻就有科目名，
+        # 接口返回时不必为了一行响应再查一次
+        subject=subject_row,
         user_id=plan.user_id,
         title=title.strip(),
         description=description.strip(),
@@ -134,6 +139,7 @@ async def create_task(
         priority=priority,
         status=TaskStatus.TODO,
         order_index=int(same_day or 0),
+        slot=slot,
     )
     session.add(task)
     await session.flush()

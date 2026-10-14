@@ -5,8 +5,17 @@
 """
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+Slot = Literal["上午", "下午", "晚上"]
+"""学习时段的取值。
+
+``Literal`` 而不是 ``str``：取值范围的权威词表在 ``app/services/scheduling.py``
+的 ``SLOTS``，这里只做类型投影 —— 于是同一个约束在提示词契约（``enum`` 会进
+JSON Schema）与接口校验两侧同时生效，不必在两处各写一遍字符串。
+"""
 
 
 class SubjectSnapshot(BaseModel):

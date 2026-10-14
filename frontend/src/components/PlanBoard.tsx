@@ -2,10 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { Timetable } from './Timetable'
 import { useWorkspace } from './WorkspaceProvider'
 import { IconCheck, IconPlan, IconPlus, IconRefresh, IconSpark } from './icons'
 import { Badge, Button, Card, EmptyState, ErrorBanner, Input, ProgressBar, Select, Spinner, Textarea, cx } from './ui'
-import { api } from '@/lib/api'
+import { api, flattenTasks } from '@/lib/api'
 import {
   PRIORITY_LABEL,
   TASK_STATUS_LABEL,
@@ -16,6 +17,7 @@ import {
   statusTone,
   todayISO,
 } from '@/lib/format'
+import { SLOTS, weekStart } from '@/lib/timetable'
 import type { PlanRead, Priority, TaskRead, TaskStatus } from '@/lib/types'
 
 type Filter = 'all' | TaskStatus
@@ -30,12 +32,19 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
 
 const PRIORITIES: Priority[] = ['high', 'medium', 'low']
 
+/** 时段下拉：留空表示交给系统按偏好分配，而不是替用户随手挑一个。 */
+const SLOT_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: '', label: '不指定时段' },
+  ...SLOTS.map((slot) => ({ value: slot, label: slot })),
+]
+
 interface TaskForm {
   title: string
   description: string
   planned_date: string
   duration_minutes: number
   priority: Priority
+  slot: string
 }
 
 interface PlanForm {
@@ -50,6 +59,7 @@ const EMPTY_TASK: TaskForm = {
   planned_date: todayISO(),
   duration_minutes: 60,
   priority: 'medium',
+  slot: '',
 }
 
 export function PlanBoard() {
@@ -98,6 +108,9 @@ export function PlanBoard() {
     const done = tasks.filter((task) => task.status === 'done').length
     return { total: tasks.length, done, rate: tasks.length ? done / tasks.length : 0 }
   }, [plan])
+
+  const allTasks = useMemo(() => flattenTasks(plan?.stages ?? []), [plan])
+  const today = todayISO()
 
   const run = async (key: string, action: () => Promise<unknown>, message: string) => {
     setBusy(key)
@@ -152,6 +165,7 @@ export function PlanBoard() {
       planned_date: task.planned_date,
       duration_minutes: task.duration_minutes,
       priority: task.priority,
+      slot: task.slot ?? '',
     })
   }
 
@@ -168,6 +182,7 @@ export function PlanBoard() {
           planned_date: taskForm.planned_date,
           duration_minutes: taskForm.duration_minutes,
           priority: taskForm.priority,
+          ...(taskForm.slot ? { slot: taskForm.slot } : {}),
         })
         setEditingTaskId(null)
       },
@@ -191,6 +206,7 @@ export function PlanBoard() {
           planned_date: newTask.planned_date,
           duration_minutes: newTask.duration_minutes,
           priority: newTask.priority,
+          ...(newTask.slot ? { slot: newTask.slot } : {}),
         })
         setAddingStageId(null)
         setNewTask(EMPTY_TASK)
@@ -249,6 +265,8 @@ export function PlanBoard() {
   return (
     <div className="flex flex-col gap-3.5">
       {error && <ErrorBanner message={error} onRetry={() => void load()} />}
+
+      <Timetable tasks={allTasks} todayIso={today} weekStartIso={weekStart(today)} />
 
       <Card
         title={
@@ -436,6 +454,19 @@ export function PlanBoard() {
                             </option>
                           ))}
                         </Select>
+                        <Select
+                          value={taskForm.slot}
+                          onChange={(event) =>
+                            setTaskForm((c) => ({ ...c, slot: event.target.value }))
+                          }
+                          className="max-w-32"
+                        >
+                          {SLOT_OPTIONS.map((item) => (
+                            <option key={item.value} value={item.value}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </Select>
                       </div>
                       <div className="flex items-center gap-2">
                         <Button loading={busy === `task-${task.id}`} onClick={() => void saveTask(task)}>
@@ -474,6 +505,8 @@ export function PlanBoard() {
                             {PRIORITY_LABEL[task.priority]}优先
                           </span>
                           <Badge tone="neutral">{TASK_TYPE_LABEL[task.task_type]}</Badge>
+                          {task.subject && <Badge tone="sky">{task.subject}</Badge>}
+                          {task.slot && <Badge tone="indigo">{task.slot}</Badge>}
                           <span className="text-[11px] text-ink-muted">
                             {shortDate(task.planned_date)} · {task.duration_minutes} 分钟
                           </span>
@@ -568,6 +601,19 @@ export function PlanBoard() {
                       {PRIORITIES.map((item) => (
                         <option key={item} value={item}>
                           {PRIORITY_LABEL[item]}优先
+                        </option>
+                      ))}
+                    </Select>
+                    <Select
+                      value={newTask.slot}
+                      onChange={(event) =>
+                        setNewTask((c) => ({ ...c, slot: event.target.value }))
+                      }
+                      className="max-w-32"
+                    >
+                      {SLOT_OPTIONS.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
                         </option>
                       ))}
                     </Select>

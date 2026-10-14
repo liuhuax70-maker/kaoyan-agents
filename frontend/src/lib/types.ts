@@ -82,6 +82,8 @@ export interface TaskRead {
   difficulty: number
   resource_hint: string
   order_index: number
+  slot: string | null
+  subject: string
   depends_on_task_id: number | null
 }
 

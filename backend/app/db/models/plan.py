@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
+import sqlalchemy as sa
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -157,19 +158,43 @@ class StudyTask(Base, IntegerIdMixin, TimestampMixin):
         String(255), default="", comment="资料提示，由资料智能体给出"
     )
     order_index: Mapped[int] = mapped_column(Integer, default=0, comment="同日内排序")
+    # 刻意用可空 String 而不是枚举：study_tasks 是既有表，加枚举列意味着加 CHECK，
+    # 而 SQLite 改不了列约束、只能整表重建（对比 reminders.reminder_type 那次迁移）。
+    # 时段只在课表里用于展示与排序、从不做筛选键，DB 层校验买不到任何东西；
+    # 取值约束上移到 Pydantic 的 Slot（Literal），词表的权威定义在 services/scheduling.py。
+    slot: Mapped[str | None] = mapped_column(
+        String(8),
+        index=True,
+        comment="学习时段：上午/下午/晚上。自由字符串而非枚举，理由见该列上方注释",
+    )
     depends_on_task_id: Mapped[int | None] = mapped_column(
         ForeignKey("study_tasks.id", ondelete="SET NULL"), comment="前置任务，支持任务拆解依赖"
     )
 
     plan: Mapped["StudyPlan"] = relationship(back_populates="tasks", lazy="raise")
     stage: Mapped["PlanStage | None"] = relationship(back_populates="tasks", lazy="raise")
-    subject: Mapped["Subject | None"] = relationship(lazy="raise")
+    # 科目用 selectin 而不是 lazy="raise"：课表的「今日目标」要按科目名汇总，
+    # 而 Subject 没有指回 StudyTask 的反向集合，selectin 不会形成循环预加载。
+    subject: Mapped["Subject | None"] = relationship(lazy="selectin")
     progress_records: Mapped[list["TaskProgress"]] = relationship(
         back_populates="task",
         cascade="all, delete-orphan",
         lazy="selectin",
         order_by="TaskProgress.id",
     )
+
+    @property
+    def subject_name(self) -> str:
+        """科目名称；关系未加载（如内存中新建、还没 flush 的任务）时返回空串。
+
+        用 ``inspect(...).unloaded`` 判断而不是直接取 ``self.subject``：后者在
+        未加载时会触发懒加载，而懒加载在异步会话里会抛 ``MissingGreenlet``。
+        """
+
+        if "subject" in sa.inspect(self).unloaded:
+            return ""
+        subject = self.subject
+        return subject.name if subject else ""
 
     def __repr__(self) -> str:
         return f"<StudyTask id={self.id} title={self.title!r} status={self.status}>"

@@ -110,4 +110,5 @@ async def add_task(plan_id: int, payload: TaskCreate, session: SessionDep) -> St
         duration_minutes=payload.duration_minutes,
         priority=payload.priority,
         task_type=payload.task_type,
+        slot=payload.slot,
     )

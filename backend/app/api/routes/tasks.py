@@ -8,6 +8,7 @@ from app.db.models import StudyTask, TaskProgress, TaskStatus
 from app.schemas.api import TaskProgressRead, TaskRead, TaskUpdate
 from app.services.plan_edit import delete_task
 from app.services.progress import record_check_in
+from app.services.scheduling import order_tasks
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -28,11 +29,7 @@ async def list_tasks(
     if plan_id is not None:
         statement = statement.where(StudyTask.plan_id == plan_id)
 
-    return list(
-        await session.scalars(
-            statement.order_by(StudyTask.planned_date, StudyTask.order_index).limit(limit)
-        )
-    )
+    return list(await session.scalars(order_tasks(statement).limit(limit)))
 
 
 @router.get("/{task_id}", response_model=TaskRead, summary="查询任务详情")

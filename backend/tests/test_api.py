@@ -181,6 +181,11 @@ async def test_generate_plan_persists_plan_and_tasks(client: AsyncClient) -> Non
     assert detail["stages"]
     assert sum(len(stage["tasks"]) for stage in detail["stages"]) > 0
 
+    # 科目名要一直传到接口：课表的「今日目标」按科目汇总，取不到名就只能全归「其他」
+    assert {task["subject"] for stage in detail["stages"] for task in stage["tasks"]} >= {"数学"}
+    # 时段也必须在落库时补齐，否则课表的行是空的
+    assert all(task["slot"] for stage in detail["stages"] for task in stage["tasks"])
+
 
 async def test_chat_routes_to_tutor_and_keeps_conversation(client: AsyncClient) -> None:
     """路由到答疑讲师这条事实，现在由 ``tool_calls`` 承载。
@@ -580,6 +585,41 @@ async def test_plan_task_crud_via_api(client: AsyncClient) -> None:
     deleted = await client.delete(f"/api/tasks/{task_id}")
     assert deleted.status_code == 204
     assert (await client.get(f"/api/tasks/{task_id}")).status_code == 404
+
+
+async def test_slot_ordering_uses_natural_slot_order(client: AsyncClient) -> None:
+    """课表排序按 上午→下午→晚上，而不是中文字典序。
+
+    三个任务按 晚上/上午/下午 的顺序创建，``order_index`` 依次为 0/1/2。
+    排序若只看日期与 ``order_index``，返回的就是创建顺序；只有时段参与了排序，
+    才会变成 上午→下午→晚上 —— 这正是 CASE 助手存在的理由（Unicode 序不是时间序）。
+    """
+
+    user_id = await _create_user(client, username="slot_order")
+    await _create_target(client, user_id)
+
+    generated = await client.post("/api/plans/generate", json={"user_id": user_id})
+    assert generated.status_code == 200, generated.text
+    plan_id = generated.json()["plan_id"]
+
+    mine = {f"{slot}任务" for slot in ("晚上", "上午", "下午")}
+    for slot in ("晚上", "上午", "下午"):
+        created = await client.post(
+            f"/api/plans/{plan_id}/tasks",
+            json={
+                "title": f"{slot}任务",
+                "planned_date": TODAY.isoformat(),
+                "slot": slot,
+                "duration_minutes": 30,
+            },
+        )
+        assert created.status_code == 201, created.text
+
+    listing = await client.get("/api/tasks", params={"user_id": user_id, "plan_id": plan_id})
+    assert listing.status_code == 200
+    ordered = [item["slot"] for item in listing.json() if item["title"] in mine]
+
+    assert ordered == ["上午", "下午", "晚上"]
 
 
 async def test_chat_revision_is_persisted(client: AsyncClient) -> None:

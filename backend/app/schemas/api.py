@@ -17,6 +17,7 @@ from app.db.models.enums import (
     TaskType,
     TrackedSchoolStatus,
 )
+from app.schemas.common import Slot
 from app.schemas.review import PlanReviewResult
 from app.schemas.workflow import AgentOutput, PlanConfirmation, ToolCallRecord
 
@@ -159,6 +160,9 @@ class TaskRead(BaseModel):
     difficulty: int
     resource_hint: str
     order_index: int
+    slot: str | None = None
+    # 科目名从 StudyTask.subject_name 读（见该属性的说明），因此这里用校验别名
+    subject: str = Field(default="", validation_alias="subject_name")
     depends_on_task_id: int | None
 
 
@@ -207,6 +211,7 @@ class TaskUpdate(BaseModel):
     planned_date: date | None = None
     duration_minutes: int | None = Field(default=None, ge=5, le=480)
     priority: Priority | None = None
+    slot: Slot | None = None
     note: str = Field(default="", max_length=1000)
     actual_minutes: int | None = Field(default=None, ge=0, le=1440)
     score: float | None = Field(default=None, ge=0, le=200)
@@ -223,6 +228,7 @@ class TaskCreate(BaseModel):
     duration_minutes: int = Field(default=60, ge=5, le=480)
     priority: Priority = Priority.MEDIUM
     task_type: TaskType = TaskType.LEARN
+    slot: Slot | None = Field(default=None, description="学习时段，留空则由系统按偏好分配")
 
 
 class PlanUpdate(BaseModel):

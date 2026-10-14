@@ -7,6 +7,7 @@
 from pydantic import BaseModel, Field
 
 from app.db.models.enums import Priority, StageType, TaskType
+from app.schemas.common import Slot
 
 
 class TaskDraft(BaseModel):
@@ -21,6 +22,10 @@ class TaskDraft(BaseModel):
     priority: Priority = Priority.MEDIUM
     difficulty: int = Field(default=3, ge=1, le=5)
     resource_hint: str = Field(default="", max_length=200, description="资料或章节提示")
+    slot: Slot | None = Field(
+        default=None,
+        description="学习时段：上午/下午/晚上。留空则由系统按用户偏好时段分配",
+    )
     depends_on_index: int | None = Field(
         default=None, description="前置任务在本阶段任务列表中的下标"
     )

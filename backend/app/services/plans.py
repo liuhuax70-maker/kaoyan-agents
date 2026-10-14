@@ -11,8 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.core.timeutil import utc_today
-from app.db.models import PlanStage, PlanStatus, StudyPlan, StudyTask, Subject, TaskStatus
+from app.db.models import (
+    LearnerProfile,
+    PlanStage,
+    PlanStatus,
+    StudyPlan,
+    StudyTask,
+    Subject,
+    TaskStatus,
+)
 from app.schemas import PlanDraft
+from app.services.scheduling import DEFAULT_ATTENTION_SPAN, assign_slots
 
 logger = get_logger(__name__)
 
@@ -53,6 +62,7 @@ async def persist_plan_draft(
     await session.flush()
 
     subjects = await _subject_index(session, target_id)
+    preferred, attention_span = await _slot_preferences(session, user_id)
     task_count = 0
 
     for index, stage_draft in enumerate(draft.stages):
@@ -70,6 +80,8 @@ async def persist_plan_draft(
         await session.flush()
 
         ordered = sorted(stage_draft.tasks, key=lambda item: (item.day_offset, item.title))
+        # 时段在落库前补齐：模型留空的按用户偏好做水线填充，模型给了的就照用
+        assign_slots(ordered, preferred, attention_span=attention_span)
         created: list[StudyTask] = []
 
         for order, task_draft in enumerate(ordered):
@@ -88,6 +100,7 @@ async def persist_plan_draft(
                 difficulty=task_draft.difficulty,
                 resource_hint=task_draft.resource_hint,
                 order_index=order,
+                slot=task_draft.slot,
             )
             session.add(task)
             created.append(task)
@@ -159,3 +172,19 @@ async def _subject_index(session: AsyncSession, target_id: int) -> dict[str, int
         select(Subject.name, Subject.id).where(Subject.target_id == target_id)
     )
     return dict(rows.all())
+
+
+async def _slot_preferences(session: AsyncSession, user_id: int) -> tuple[list[str], int]:
+    """读取用户的偏好时段与单次专注时长，供时段分配使用。
+
+    刻意在这里按 ``user_id`` 现查一次，而不是把 learner 穿进 ``CommitContext``：
+    那个结构在「恢复人工确认」的路径上拿不到 learner，塞进去等于让它携带一个假值，
+    而假值造成的错误是静默的。
+    """
+
+    profile = await session.scalar(
+        select(LearnerProfile).where(LearnerProfile.user_id == user_id)
+    )
+    if profile is None:
+        return [], DEFAULT_ATTENTION_SPAN
+    return list(profile.preferred_slots or []), profile.attention_span

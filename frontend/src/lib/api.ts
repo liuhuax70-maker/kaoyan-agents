@@ -115,6 +115,7 @@ export interface UpdateTaskPayload {
   planned_date?: string
   duration_minutes?: number
   priority?: Priority
+  slot?: string
   actual_minutes?: number
   score?: number
   note?: string
@@ -129,6 +130,7 @@ export interface CreateTaskPayload {
   duration_minutes?: number
   priority?: Priority
   task_type?: TaskType
+  slot?: string
 }
 
 export const api = {

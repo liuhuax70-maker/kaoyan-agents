@@ -421,14 +421,84 @@
 **Celery beat 的错峰（`school-brief` 取 `:15`）同样不标知识点。** 它是调度工程而非
 LangChain/LangGraph 概念，理由留在 `celery_app.py` 的普通注释里，不占对照表的一行。
 
+## 阶段 9：课表化计划（时段 + 周视图 + 今日目标）
+
+验收标准 3 要求计划像**课程表**那样列出来，并在最右侧的小格子里列出**今日要达成的
+目标**。此前的 `StudyTask` 只有 `planned_date` + `order_index`，没有任何时段概念 ——
+「第几天」有了，「那天的哪一段」没有。本阶段补上时段维度：模型可以在草稿里指定，
+留空的由确定性代码按用户偏好补齐，界面上呈现为「周一~周日 × 上午/下午/晚上」的网格。
+
+| 代码位置 | 板块 | 知识点 | 文档定位 | 一句话原理 |
+| --- | --- | --- | --- | --- |
+| `services/scheduling.py` · `order_tasks` / `slot_rank` | 排序口径 | 排序口径的单一来源 | 第3章 Agent 进阶·工具可靠性 | 中文字典序**不等于**时间顺序（`"上午" < "下午" < "晚上"` 不成立），裸的 `order_by(slot)` 是静默错的排序；把「谁在前」抽成一处映射供三个加载器复用，口径才不会各自漂移 |
+| `services/scheduling.py` · `assign_slots` | 结构化输出 | 模型给不全的，由确定性代码补齐 | 第2章 LangChain 核心组件·结构化输出 | 与「模型不碰日期、只给 `day_offset`」同一条理路：时段这种可推导的字段让模型猜只会引入噪声，落库前按偏好做水线填充既确定又可单测 |
+| `schemas/common.py` · `Slot`、`schemas/plan.py` · `TaskDraft.slot` | 结构化输出 | 取值约束写进契约而非散文 | 第2章 LangChain 核心组件·结构化输出 | `Literal` 会在 JSON Schema 里落成 `enum`，模型因此**看得见**它只能吐三个值；写进提示词散文则只是一种请求，无从校验 |
+
+### 本阶段的验证点
+
+- `tests/test_api.py::test_slot_ordering_uses_natural_slot_order` —— 三个任务按
+  晚上/上午/下午 的顺序创建（`order_index` 依次 0/1/2），接口必须按 上午→下午→晚上
+  返回。这是 `slot_rank()` 的回归测试：去掉它，返回的就是创建顺序。
+- `tests/test_services.py` 三个分配用例 —— 偏好时段决定落在哪一行、模型已给时段的不覆盖、
+  `attention_span` 作为水线高度（一个时段堆满才换行）、偏好为空时退回全部时段。
+- `tests/test_services.py::test_persist_plan_draft_fills_missing_slots` —— 偏好只有
+  「晚上」时每个任务都落在晚上，证明分配真的读到了档案。
+- `tests/test_api.py::test_generate_plan_persists_plan_and_tasks` 增补两条断言：
+  科目名与时段都要一路传到接口 —— 课表的「今日目标」按科目汇总，取不到名就只能全归「其他」。
+- `tests/test_migrations.py` —— 加列迁移同样跑全新 SQLite 升级 + 完整回滚。
+
+### 一处刻意的取舍（记录原因）
+
+**`slot` 用可空 `String(8)`，不用新枚举。** `study_tasks` 是**既有表**，加枚举列意味着
+加 CHECK，而 SQLite 改不了列约束、只能整表重建（对比阶段 8 那次 `reminders` 重建）。
+时段只在课表里用于展示与排序、从不做筛选键，DB 层校验买不到任何东西；
+取值约束上移到 Pydantic 的 `Slot`，权威词表放在 `services/scheduling.py` 的 `SLOTS`，
+`schemas/common.py` 的 `Slot` 只是它的类型投影 —— 一套词表，一处定义。
+
+**`StudyTask.subject` 的加载策略从 `lazy="raise"` 改成 `lazy="selectin"`。** 这是本阶段
+唯一动了既有关系的地方，理由具体：课表的「今日目标」要按**科目名**汇总，而
+`TaskRead` 此前只有 `subject_id`。`Subject` 没有指回 `StudyTask` 的反向集合，
+`selectin` 不会形成循环预加载；而逐个端点铺 `selectinload(StudyTask.subject)` 要改六处
+（列表、详情、打卡、新增、计划列表、计划详情），漏一处就是「有的任务有科目名、有的没有」
+这种最难查的差异。`subject_name` 属性仍用 `inspect(...).unloaded` 兜底，未加载时返回空串
+而不是触发懒加载（异步会话里懒加载会抛 `MissingGreenlet`）。
+
+**`create_task` 改成直接挂 `Subject` 对象，而不是写 `subject_id`。** 顺带的收益是新建出来的
+任务立刻就有科目名，接口不必为了一行响应再查一次；代价是 `plan_edit._subject_index`
+（名称→主键的映射）失去了唯一调用方，已删除，替换为 `_find_subject`。
+
+**`TaskRead.subject` 用 `validation_alias="subject_name"` 取值。** 字段名只能是 `subject`
+（契约好看），但 ORM 上 `subject` 已是关系名，所以从 `subject_name` 属性读。已实测
+Pydantic v2 的 `from_attributes` 会遵循 `validation_alias`，且序列化仍输出字段名
+`subject`（`validation_alias` 不影响序列化）。
+
+**课表挂在 `PlanBoard` 内部而不是 `page.tsx` 之上。** 计划原文写的是「挂在计划页
+（`PlanBoard` 之上）」，但 `page.tsx` 手上没有任务列表 —— 挂在它那一层就要为了同一个
+计划再发一次请求，两份数据还可能不同步。挂在 `PlanBoard` 返回内容的最上方，
+视觉上同样是「看板之上」，且只有一份数据源。
+
+**周次导航（上一周/本周/下一周）属于必要补充，不算「具体前端效果」的越界。**
+一个 60 天的计划铺进固定的一周网格只看得见约七分之一的任务，没有翻页的课表是残缺的。
+除此之外没有再加动效、拖拽这类效果 —— 那些按规格留到「届时再考虑」。
+
+**「今日目标」的聚合口径放在纯函数 `lib/timetable.ts` 里，而不是散在组件内。**
+验收标准把它写成一条可计算的规则（只看今天、只算未完成、空科目归「其他」、按时长降序），
+放纯函数才能单测，也才能保证「当时算的」与「界面上看到的」不可能不一致。
+`SLOTS` 同样是全前端唯一的时段定义处：网格、今日目标、表单下拉都从这里取词，
+三处各写一份字符串是课表最常见的漂移来源。
+
+**`buildGrid` 给没有时段的任务单独留一行「未定时段」，而不是塞进某一格。**
+课表的价值就在位置说明安排，硬塞会让用户以为那是他计划好的时段；
+留一行反而把「这些还没排」讲清楚了。
+
 ## 按章节反查代码
 
 文档落库后按章节复习时，从这里进入比按文件翻更快。
 
 | 章节 | 涉及文件 |
 | --- | --- |
-| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`app/agents/school.py`、`tests/fakes.py` |
-| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py`、`app/services/snapshots.py`（`consecutive_zero_days`） |
+| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/schemas/plan.py`、`app/schemas/common.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`app/agents/school.py`、`app/services/scheduling.py`、`tests/fakes.py` |
+| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py`、`app/services/snapshots.py`（`consecutive_zero_days`）、`app/services/scheduling.py`（`order_tasks`） |
 | 第4章 RAG Agent | `app/knowledge/*`、`app/search/*`、`app/prompts/context.py`（`render_retrieved` / `render_web_intel`）、`app/prompts/catalog.py`（`SCHOOL_ADVISOR_ROLE`）、`app/workflows/nodes.py`（`_run_school_advisor`）、`app/agents/school.py`、`frontend/src/components/AgentAnswer.tsx`、`frontend/src/components/Markdown.tsx`、`frontend/src/components/ReminderPanel.tsx` |
 | 第5章 LangGraph | `app/workflows/state.py`、`graph.py`、`nodes.py`、`runner.py`、`chat_agent.py`、`checkpoint.py`、`app/services/conversations.py`、`frontend/src/lib/sse.ts`、`frontend/src/components/ChatPanel.tsx`、`frontend/src/components/ConfirmationCard.tsx` |
 

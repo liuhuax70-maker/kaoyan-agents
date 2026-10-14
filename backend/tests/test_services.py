@@ -23,7 +23,7 @@ from app.db.models import (
     TaskStatus,
     User,
 )
-from app.schemas import PlanDraft
+from app.schemas import PlanDraft, TaskDraft
 from app.services import (
     active_user_ids,
     collect_progress,
@@ -34,6 +34,7 @@ from app.services import (
 )
 from app.services.conversations import load_history
 from app.services.plans import persist_plan_draft
+from app.services.scheduling import SLOTS, assign_slots
 from app.services.snapshots import consecutive_zero_days
 
 TODAY = date(2026, 10, 10)
@@ -340,6 +341,69 @@ async def test_persist_plan_draft_creates_stages_and_tasks(app_db: AsyncSession)
     assert first.subject == "数学"
     assert first.stage == "基础夯实"
     assert first.status == "todo"
+
+
+def test_slots_assigned_from_preferred_slots() -> None:
+    """偏好时段决定课表行；模型已给时段的不覆盖，也不占水线。"""
+
+    tasks = [
+        TaskDraft(title="数学精读", day_offset=0, duration_minutes=60),
+        TaskDraft(title="英语阅读", day_offset=0, duration_minutes=60),
+        TaskDraft(title="政治背诵", day_offset=0, duration_minutes=60, slot="晚上"),
+    ]
+
+    filled = assign_slots(tasks, ["上午", "下午", "晚上"], attention_span=60)
+
+    assert filled == 2
+    assert {task.title: task.slot for task in tasks} == {
+        "数学精读": "上午",
+        "英语阅读": "下午",
+        "政治背诵": "晚上",
+    }
+
+
+def test_assign_slots_uses_attention_span_as_water_line() -> None:
+    """单次专注时长就是水线高度：一个时段堆满就换行，而不是全塞进上午。"""
+
+    tasks = [
+        TaskDraft(title=f"任务{index}", day_offset=0, duration_minutes=30) for index in range(4)
+    ]
+
+    assign_slots(tasks, ["上午", "下午"], attention_span=60)
+
+    assert [task.slot for task in tasks] == ["上午", "上午", "下午", "下午"]
+
+
+def test_assign_slots_falls_back_to_all_slots_without_preference() -> None:
+    """偏好为空时按 上午/下午/晚上 的默认顺序分配，而不是留空。"""
+
+    tasks = [TaskDraft(title="真题训练", day_offset=0, duration_minutes=120)]
+
+    assert assign_slots(tasks, []) == 1
+    assert tasks[0].slot == "上午"
+
+
+async def test_persist_plan_draft_fills_missing_slots(app_db: AsyncSession) -> None:
+    """模型没给时段的任务，落库时按用户偏好补齐。"""
+
+    ids = await _seed(app_db)
+    profile = await app_db.scalar(
+        select(LearnerProfile).where(LearnerProfile.user_id == ids["user"])
+    )
+    assert profile is not None
+    profile.preferred_slots = ["晚上"]
+    await app_db.flush()
+
+    await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(), today=TODAY
+    )
+    await app_db.commit()
+
+    tasks = list(await app_db.scalars(select(StudyTask).where(StudyTask.user_id == ids["user"])))
+    assert tasks
+    # 偏好只有「晚上」，因此每个任务都该落在这一行；留空会说明分配根本没跑到
+    assert {task.slot for task in tasks} == {"晚上"}
+    assert set(SLOTS) >= {"晚上"}
 
 
 async def test_persist_plan_draft_resolves_task_dependencies(app_db: AsyncSession) -> None:
