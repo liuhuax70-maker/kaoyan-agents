@@ -1,13 +1,17 @@
 """学习计划接口。"""
 
+from typing import Any
+
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.api.deps import SessionDep
+from app.core.timeutil import utc_today
 from app.db.models import StudyPlan, StudyTask
 from app.schemas.api import (
     ChatRequest,
     ChatResponse,
+    PlanDeferRequest,
     PlanGenerateRequest,
     PlanRead,
     PlanUpdate,
@@ -15,7 +19,12 @@ from app.schemas.api import (
     TaskRead,
 )
 from app.services.conversations import handle_chat
-from app.services.plan_edit import create_task, load_plan, update_plan_fields
+from app.services.plan_edit import (
+    create_task,
+    defer_unfinished_tasks,
+    load_plan,
+    update_plan_fields,
+)
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
@@ -65,6 +74,25 @@ async def get_plan(plan_id: int, session: SessionDep) -> StudyPlan:
     if plan is None:
         raise HTTPException(status_code=404, detail="学习计划不存在")
     return plan
+
+
+@router.post("/{plan_id}/defer", summary="把逾期任务顺延到今天")
+async def defer_plan(
+    plan_id: int, payload: PlanDeferRequest, session: SessionDep
+) -> dict[str, Any]:
+    """一键顺延：只动已经逾期且未完成的任务，今天与未来的安排不变。
+
+    这是规格里那句「也可以稍微动态地规划」的落点，也是与聊天里让修订师顺延
+    完全同一条底层路径 —— 按钮保证可用，聊天只是多一种说法。
+    """
+
+    plan = await load_plan(session, plan_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="学习计划不存在")
+
+    target = payload.target_date or utc_today()
+    moved = await defer_unfinished_tasks(session, plan=plan, target_date=target)
+    return {"moved": moved, "target_date": target.isoformat()}
 
 
 @router.patch("/{plan_id}", response_model=PlanRead, summary="修改计划信息")

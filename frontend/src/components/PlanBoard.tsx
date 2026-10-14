@@ -71,6 +71,7 @@ export function PlanBoard() {
   const [busy, setBusy] = useState<string | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null)
   const [taskForm, setTaskForm] = useState<TaskForm>(EMPTY_TASK)
@@ -111,6 +112,9 @@ export function PlanBoard() {
 
   const allTasks = useMemo(() => flattenTasks(plan?.stages ?? []), [plan])
   const today = todayISO()
+  const overdueCount = allTasks.filter(
+    (task) => task.status !== 'done' && task.status !== 'skipped' && task.planned_date < today,
+  ).length
 
   const run = async (key: string, action: () => Promise<unknown>, message: string) => {
     setBusy(key)
@@ -192,6 +196,20 @@ export function PlanBoard() {
   const removeTask = (task: TaskRead) =>
     run(`task-${task.id}`, () => api.deleteTask(task.id), '删除任务失败')
 
+  const deferOverdue = () =>
+    run(
+      'defer',
+      async () => {
+        const result = await api.deferPlan(plan!.id)
+        setNotice(
+          result.moved
+            ? `已把 ${result.moved} 个逾期任务顺延到 ${result.target_date}，接下来按新节奏走就好`
+            : '没有逾期未完成的任务，不用调整',
+        )
+      },
+      '顺延失败',
+    )
+
   const submitNewTask = (stageId: number, stageName: string) =>
     run(
       `add-${stageId}`,
@@ -265,6 +283,11 @@ export function PlanBoard() {
   return (
     <div className="flex flex-col gap-3.5">
       {error && <ErrorBanner message={error} onRetry={() => void load()} />}
+      {notice && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-xs text-emerald-800">
+          {notice}
+        </div>
+      )}
 
       <Timetable tasks={allTasks} todayIso={today} weekStartIso={weekStart(today)} />
 
@@ -357,7 +380,7 @@ export function PlanBoard() {
         </div>
       </Card>
 
-      <div className="flex flex-wrap gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((item) => (
           <button
             key={item.key}
@@ -373,6 +396,16 @@ export function PlanBoard() {
             {item.label}
           </button>
         ))}
+        <Button
+          variant="outline"
+          className="ml-auto"
+          disabled={overdueCount === 0}
+          loading={busy === 'defer'}
+          onClick={() => void deferOverdue()}
+        >
+          <IconRefresh size={14} />
+          {overdueCount > 0 ? `把 ${overdueCount} 个逾期任务顺延到今天` : '没有逾期任务'}
+        </Button>
       </div>
 
       {visibleStages.map((stage) => {

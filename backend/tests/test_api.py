@@ -10,11 +10,20 @@ from typing import Any
 import pytest
 from httpx import AsyncClient
 
+from app.core.timeutil import utc_today
 from app.knowledge import Document, get_knowledge_base
 from app.workflows.chat_agent import CHAT_AGENT_TASK
 from tests.fakes import message_text, recorded_requests
 
 TODAY = date.today()
+
+UTC_TODAY = utc_today()
+"""服务端的「今天」是 UTC 口径（``app.core.timeutil.utc_today``）。
+
+凡是断言到「某一天」的用例都必须用它而不是本地 ``date.today()``：
+服务器跑在 UTC、用户在东八区时，两者在凌晨会差一天，
+顺着本地日期写断言就会在特定时段随机变红。
+"""
 
 
 def collect_references(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -620,6 +629,76 @@ async def test_slot_ordering_uses_natural_slot_order(client: AsyncClient) -> Non
     ordered = [item["slot"] for item in listing.json() if item["title"] in mine]
 
     assert ordered == ["上午", "下午", "晚上"]
+
+
+async def test_defer_api_endpoint(client: AsyncClient) -> None:
+    """一键顺延把逾期任务挪到今天，并如实返回挪了几条。"""
+
+    user_id = await _create_user(client, username="defer_user")
+    await _create_target(client, user_id)
+
+    generated = await client.post("/api/plans/generate", json={"user_id": user_id})
+    assert generated.status_code == 200, generated.text
+    plan_id = generated.json()["plan_id"]
+
+    created = await client.post(
+        f"/api/plans/{plan_id}/tasks",
+        json={
+            "title": "前天的数学错题",
+            "planned_date": (UTC_TODAY - timedelta(days=3)).isoformat(),
+            "duration_minutes": 30,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    response = await client.post(f"/api/plans/{plan_id}/defer", json={})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["target_date"] == UTC_TODAY.isoformat()
+    # 生成计划的任务都排在今天及以后，因此只有手动建的那一条算逾期
+    assert body["moved"] == 1
+
+    listing = await client.get(
+        "/api/tasks", params={"user_id": user_id, "plan_id": plan_id}
+    )
+    tasks = listing.json()
+    assert all(item["planned_date"] >= UTC_TODAY.isoformat() for item in tasks)
+    deferred = [item for item in tasks if item["title"] == "前天的数学错题"]
+    assert deferred and deferred[0]["planned_date"] == UTC_TODAY.isoformat()
+
+
+async def test_chat_defer_request_uses_the_same_path(client: AsyncClient) -> None:
+    """聊天里说「把没做完的顺延到明天」，与按钮走的是同一条顺延路径。"""
+
+    user_id = await _create_user(client, username="defer_chat")
+    await _create_target(client, user_id)
+
+    generated = await client.post("/api/plans/generate", json={"user_id": user_id})
+    plan_id = generated.json()["plan_id"]
+
+    await client.post(
+        f"/api/plans/{plan_id}/tasks",
+        json={
+            "title": "前天的政治背诵",
+            "planned_date": (UTC_TODAY - timedelta(days=2)).isoformat(),
+            "duration_minutes": 30,
+        },
+    )
+
+    reply = await client.post(
+        "/api/chat", json={"user_id": user_id, "message": "把没做完的顺延到明天"}
+    )
+    assert reply.status_code == 200, reply.text
+    payload = reply.json()
+    assert "revise_plan" in {item["name"] for item in payload["tool_calls"]}
+
+    listing = await client.get(
+        "/api/tasks", params={"user_id": user_id, "plan_id": plan_id}
+    )
+    deferred = [item for item in listing.json() if item["title"] == "前天的政治背诵"]
+    assert deferred
+    # 「明天」是相对今天的一天，而不是相对计划开始日 —— 模型看不见今天是几号
+    assert deferred[0]["planned_date"] == (UTC_TODAY + timedelta(days=1)).isoformat()
 
 
 async def test_chat_revision_is_persisted(client: AsyncClient) -> None:

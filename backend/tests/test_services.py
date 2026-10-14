@@ -33,6 +33,7 @@ from app.services import (
     load_plan_snapshot,
 )
 from app.services.conversations import load_history
+from app.services.plan_edit import defer_unfinished_tasks, load_plan
 from app.services.plans import persist_plan_draft
 from app.services.scheduling import SLOTS, assign_slots
 from app.services.snapshots import consecutive_zero_days
@@ -404,6 +405,51 @@ async def test_persist_plan_draft_fills_missing_slots(app_db: AsyncSession) -> N
     # 偏好只有「晚上」，因此每个任务都该落在这一行；留空会说明分配根本没跑到
     assert {task.slot for task in tasks} == {"晚上"}
     assert set(SLOTS) >= {"晚上"}
+
+
+async def test_defer_moves_only_overdue_unfinished(app_db: AsyncSession) -> None:
+    """顺延只收拢「已逾期且未完成」的任务，不碰今天与未来，也不碰已完成的。"""
+
+    ids = await _seed(app_db)
+    created = await persist_plan_draft(
+        app_db, user_id=ids["user"], target_id=ids["target"], draft=_draft(), today=TODAY
+    )
+    await app_db.commit()
+
+    # 重新查一次：persist_plan_draft 返回的对象的 tasks 集合没有加载，
+    # 直接访问会触发异步会话里的懒加载（MissingGreenlet）
+    plan = await load_plan(app_db, created.id)
+    assert plan is not None
+
+    tasks = list(
+        await app_db.scalars(
+            select(StudyTask).where(StudyTask.plan_id == plan.id).order_by(StudyTask.id)
+        )
+    )
+    overdue_todo, overdue_done, today_todo, future_todo = tasks
+
+    overdue_todo.planned_date = TODAY - timedelta(days=3)
+    overdue_done.planned_date = TODAY - timedelta(days=1)
+    overdue_done.status = TaskStatus.DONE
+    today_todo.planned_date = TODAY
+    future_todo.planned_date = TODAY + timedelta(days=5)
+    await app_db.flush()
+
+    moved = await defer_unfinished_tasks(app_db, plan=plan, target_date=TODAY)
+
+    assert moved == 1
+    assert overdue_todo.planned_date == TODAY
+    assert overdue_done.planned_date == TODAY - timedelta(days=1)
+    assert future_todo.planned_date == TODAY + timedelta(days=5)
+
+    # 收拢之后当日的 order_index 必须重排，否则会与既有任务撞号
+    same_day = list(
+        await app_db.scalars(
+            select(StudyTask).where(StudyTask.plan_id == plan.id, StudyTask.planned_date == TODAY)
+        )
+    )
+    assert len(same_day) == 2
+    assert sorted(task.order_index for task in same_day) == [0, 1]
 
 
 async def test_persist_plan_draft_resolves_task_dependencies(app_db: AsyncSession) -> None:

@@ -39,6 +39,7 @@ DEFAULT_SUBJECTS = ("政治", "英语", "数学", "专业课")
 # 计划修订关键词。这类词要优先于「计划」判定，
 # 否则「把任务往后挪三天」会被当成重新制定计划。
 SHIFT_KEYWORDS = ("推迟", "延后", "顺延", "往后挪", "往后推", "挪后", "延一延")
+DEFER_KEYWORDS = ("挪到明天", "挪到今天", "顺延到今天", "顺延到明天", "顺延到明", "没做完的挪")
 ADD_KEYWORDS = ("增加", "添加", "加一个", "加个", "补充", "再来一个", "新增")
 REMOVE_KEYWORDS = ("删除", "去掉", "取消", "移除", "不做了")
 META_KEYWORDS = ("改标题", "改目标", "改策略", "计划名")
@@ -50,6 +51,7 @@ INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
         "改计划",
         "调整安排",
         *SHIFT_KEYWORDS,
+        *DEFER_KEYWORDS,
         *ADD_KEYWORDS,
         *REMOVE_KEYWORDS,
     ),
@@ -803,6 +805,15 @@ def build_plan_revision(context: dict[str, Any]) -> dict[str, Any]:
             "ops": [],
         }
 
+    # 顺延判定必须排在「整体平移」之前：两者都含「顺延」这个词，
+    # 而「把没做完的顺延到明天」说的是收拢逾期任务，不是把整份计划推走。
+    if any(word in request for word in DEFER_KEYWORDS):
+        days = 0 if ("今天" in request and "明天" not in request) else 1
+        return {
+            "summary": f"把逾期未完成的任务顺延到{'今天' if days == 0 else '明天'}",
+            "ops": [{"action": "defer_unfinished", "defer_days": days}],
+        }
+
     if any(word in request for word in SHIFT_KEYWORDS):
         matched = DAY_PATTERN.search(request)
         days = int(matched.group(1)) if matched else 3
@@ -1082,6 +1093,18 @@ def _target_of(op: dict[str, Any]) -> str:
     return "计划整体"
 
 
+def _describe_revision_op(op: dict[str, Any]) -> str:
+    """把一条修订操作描述成中文短句，等价于 ``workflows/render.py`` 的同名助手。"""
+
+    if op.get("action") == "defer_unfinished":
+        days = int(op.get("defer_days") or 0)
+        return f"顺延逾期任务｜{'今天' if days == 0 else f'今天起第 {days} 天'}"
+    return (
+        f"{op.get('action')}｜{_target_of(op)}"
+        f"（第 {op.get('day_offset')} 天，{op.get('shift_days')} 天）"
+    )
+
+
 def narrate_plan_revision(payload: dict[str, Any]) -> str:
     """计划修订提案的正文。"""
 
@@ -1089,14 +1112,7 @@ def narrate_plan_revision(payload: dict[str, Any]) -> str:
     return _doc(
         "## 计划修订提案",
         str(payload.get("summary") or ""),
-        _block(
-            "具体改动",
-            [
-                f"{op.get('action')}｜{_target_of(op)}"
-                f"（第 {op.get('day_offset')} 天，{op.get('shift_days')} 天）"
-                for op in ops
-            ],
-        ),
+        _block("具体改动", [_describe_revision_op(op) for op in ops]),
         "确认无误后我才会真正写入计划表。",
     )
 

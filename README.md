@@ -10,9 +10,13 @@
 | 任务拆解 | 阶段目标 → 周任务 → 可打卡的最小学习单元 | 任务拆解 |
 | 进度跟踪 | 任务打卡、完成度统计、阶段体检 | 进度跟踪 |
 | 提醒督促 | 定时巡检、逾期催办、每日日报与周报复盘 | 提醒督促 |
+| 择校参谋 | 结合个人情况与后续目标列出多所候选院校，逐项说明适合谁与代价；**只提供选项与分析，不排名、不推荐** | 择校服务 |
+| 每日院校简报 | 每天为跟踪中的院校生成一条站内简报，附**可点击的官方核验入口** | 每日院校情况 |
+| 课表化计划 | 周课表网格（周一~周日 × 上午/下午/晚上）+ 最右列今日目标 | 课程表式计划 |
+| 一键顺延 | 逾期未完成的任务一键顺延到今天；提醒话术为邀请式而非催办 | 动态规划 |
 | 提示词体系 | 各智能体独立 system prompt + 结构化输出约束 | **智能体提示词设计** |
-| 工作流编排 | LangGraph 单一编排层；聊天 Agent 以 Subagents 模式调度 7 个子智能体工具，自身回答即最终回答 | **任务工作流编排** |
-| 学习数据管理 | 用户、目标、科目、计划、任务、进度、提醒的完整建模 | **用户学习数据管理** |
+| 工作流编排 | LangGraph 单一编排层；聊天 Agent 以 Subagents 模式调度 8 个子智能体工具，自身回答即最终回答 | **任务工作流编排** |
+| 学习数据管理 | 用户、目标、科目、计划、任务、进度、提醒、候选院校的完整建模 | **用户学习数据管理** |
 
 ## 多智能体架构（Subagents 模式）
 
@@ -41,7 +45,8 @@ START
   | `review_progress` | 复盘诊断师 | 进度体检与风险 |
   | `recommend_resources` | 资料规划师 | 资料与资源建议 |
   | `send_nudge` | 督学教练 | 督促提醒 |
-  | `revise_plan` | 计划修订师 | 产出计划修订提案 |
+  | `revise_plan` | 计划修订师 | 产出计划修订提案（含「把没做完的顺延到明天」） |
+  | `advise_schools` | 择校参谋 | 多所候选院校对比，只给选项不做推荐 |
 
 - **双轨输出**：每个子智能体回灌给聊天 Agent 的是 `SubagentReply[T]` —— `narrative`（完整 markdown 正文）+ `data`（结构化产物）。正文直接进模型上下文，因此解题步骤与易错点原文能到达用户；结构化产物驱动落库与卡片渲染。
 - **评审**：`review_plan` 节点复用 `PlanReviewResult` 与 `REVIEWER_ROLE`，由条件边触发，已从 CrewAI 迁为图节点。
@@ -270,6 +275,10 @@ npm config set registry https://registry.npmmirror.com
 | GET | `/api/tasks/{id}/progress` | 打卡历史 |
 | PATCH | `/api/plans/{id}` | 修改计划标题 / 目标 / 策略 |
 | POST | `/api/plans/{id}/tasks` | 新增任务（用户直接编辑计划表） |
+| POST | `/api/plans/{id}/defer` | 把逾期未完成的任务顺延到今天（`target_date` 可指定） |
+| GET | `/api/targets/{id}/schools` | 候选院校列表 |
+| POST | `/api/targets/{id}/schools/{school_id}/decide` | **用户**选定某所院校（唯一写回目标的入口） |
+| POST | `/api/targets/{id}/schools/{school_id}/archive` | 放弃某所候选院校 |
 | POST | `/api/chat` | 多智能体对话 |
 | POST | `/api/chat/stream` | 多智能体对话（SSE 流式） |
 | POST | `/api/chat/confirm` | 确认或驳回待落库的计划（`interrupt` 恢复） |
@@ -294,7 +303,7 @@ npm config set registry https://registry.npmmirror.com
 
 源码里每个函数/类上方都有一到两行 `# 知识点：…（第X章 …）` 标注，格式与取用规则见
 [code-knowledge-map.md 的开头](docs/code-knowledge-map.md)。对照表按重构阶段分节，
-前五节对应阶段 0–4。
+前十一节对应阶段 0–10。
 
 ## 开发节点
 
@@ -312,3 +321,4 @@ npm config set registry https://registry.npmmirror.com
 | 10 | Next.js 前端工作台 | 已完成 |
 | 11 | 测试、镜像与部署文档 | 已完成 |
 | 12 | 架构收敛重构（Subagents v2）：单一编排层、双轨输出、多轮记忆、token 流式、计划确认 | 已完成 |
+| 13 | 产品化增量：择校参谋与候选院校、每日院校简报、课表化计划、一键顺延与话术软化 | 已完成 |

@@ -97,6 +97,9 @@ TOOLS: tuple[SubagentTool, ...] = (
         description="生成督促提醒话术。用户拖延、断签或明确要求督促时使用。",
         instruction_hint="督促的具体方向，例如「最近三天没学习，帮我收心」",
     ),
+    # 知识点：工具契约的取舍 —— ``SubagentTool`` 的参数固定是单条 ``instruction``，
+    #   加一个工具要同时改三处协议；顺延与「改计划」本就是同一件事的不同说法，
+    #   折进本工具的既有通道即可，零协议改动（第3章 Agent进阶·工具可靠性）
     SubagentTool(
         name="revise_plan",
         agent="plan_editor",
@@ -105,7 +108,10 @@ TOOLS: tuple[SubagentTool, ...] = (
             "修改已存在的计划表：增删任务、调整任务日期与时长、整体平移进度、改计划标题或目标。"
             "已有计划需要局部改动时用它。"
         ),
-        instruction_hint="要改什么，例如「数学任务往后挪三天，并给英语加一个每日背单词任务」",
+        instruction_hint=(
+            "要改什么，例如「数学任务往后挪三天，并给英语加一个每日背单词任务」，"
+            "或「把没做完的顺延到明天」"
+        ),
     ),
     SubagentTool(
         name="advise_schools",

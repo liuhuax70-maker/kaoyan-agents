@@ -239,6 +239,12 @@ class PlanUpdate(BaseModel):
     strategy: str | None = Field(default=None, max_length=600)
 
 
+class PlanDeferRequest(BaseModel):
+    """把逾期未完成的任务顺延到某一天。"""
+
+    target_date: date | None = Field(default=None, description="留空则顺延到今天")
+
+
 class TaskProgressRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

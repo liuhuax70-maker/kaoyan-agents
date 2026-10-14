@@ -36,8 +36,12 @@ from app.tasks import (
     school_brief,
     weekly_digest,
 )
+from tests.fakes import message_text, recorded_requests
 
 UTC_TODAY = utc_today()
+
+PRESSURE_WORDS = ("必须", "再不学", "来不及", "已经落后", "赶紧")
+"""施压措辞的黑名单：督促是邀请，不是催办。"""
 
 
 async def _prepare_async(*, due: bool, overdue: bool, idle_days: int) -> int:
@@ -343,6 +347,24 @@ def test_school_brief_falls_back_to_official_links_when_search_degraded() -> Non
     # 研招网专业目录是不依赖搜索提供方的确定性入口，降级也必须在场
     assert "研招网 · 硕士专业目录" in content
     assert "yz.chsi.com.cn" in content
+
+
+def test_overdue_nudge_language_is_invitational() -> None:
+    """逾期提醒是邀请式表达：先说可以顺延，不施压。"""
+
+    user_id = _prepare(due=False, overdue=True, idle_days=0)
+
+    overdue_nudge.delay().get()
+
+    content = _reminders(user_id)[0].content
+    assert "顺延" in content
+    assert not [word for word in PRESSURE_WORDS if word in content]
+
+    # 提示词里也要明文给出「能顺延」这件事：否则提醒只描述了欠账，语气再客气也还是在催
+    prompts = "\n".join(
+        message_text(item) for messages in recorded_requests("nudge") for item in messages
+    )
+    assert "一键顺延到明天" in prompts
 
 
 def test_weekly_digest_builds_report_body() -> None:

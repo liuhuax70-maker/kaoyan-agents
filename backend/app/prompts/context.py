@@ -163,6 +163,8 @@ def render_reminder(reminder: ReminderSnapshot) -> str:
     overdue = reminder.overdue_tasks
     lines.append(f"今日待完成任务（{len(due)} 项）：{_bullets(due)}")
     lines.append(f"已逾期任务（{len(overdue)} 项）：{_bullets(overdue)}")
+    # 明文给出「能顺延」这件事：否则提醒只描述了欠账，语气再客气也还是在催。
+    lines.append("未完成的任务可以一键顺延到明天，计划允许动态调整，不必勉强硬撑。")
     return "\n".join(lines)
 
 

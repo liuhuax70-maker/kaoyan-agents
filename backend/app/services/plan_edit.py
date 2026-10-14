@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.timeutil import utc_today
 from app.db.models import (
     PlanStage,
     Priority,
@@ -28,6 +29,7 @@ from app.db.models import (
 )
 from app.schemas import PlanRevision, PlanRevisionOp, RevisionAction
 from app.services.progress import refresh_stage_completion
+from app.services.scheduling import order_tasks
 
 logger = get_logger(__name__)
 
@@ -208,6 +210,66 @@ async def reschedule_pending_tasks(
     return moved
 
 
+async def defer_unfinished_tasks(
+    session: AsyncSession, *, plan: StudyPlan, target_date: date
+) -> int:
+    """把逾期未完成的任务顺延到 ``target_date``，返回移动条数。
+
+    与 :func:`reschedule_pending_tasks` 的区别是这条的要害：后者把**每个**未完成任务
+    从它自己的日期起平移，会把今天与未来的任务一并推走，逾期量分毫不变 ——
+    那不是「把昨天没做完的挪到今天」，而是「整份计划往后挪」。这里只动已经掉队的那些。
+
+    刻意**不**调 ``refresh_stage_completion``：任务状态没变，完成度就不会变，
+    刷新只是白跑一次聚合查询。
+    """
+
+    overdue = [
+        task
+        for task in plan.tasks
+        if task.status in PENDING_STATES
+        and task.planned_date is not None
+        and task.planned_date < target_date
+    ]
+    if not overdue:
+        return 0
+
+    for task in overdue:
+        task.planned_date = target_date
+    await session.flush()
+
+    # 收拢之后当天会挤进新任务，必须重排序号，否则与当天既有任务撞号
+    await reindex_day(session, plan_id=plan.id, day=target_date)
+    logger.info("顺延逾期任务 plan=%s → %s，共 %d 个", plan.id, target_date, len(overdue))
+    return len(overdue)
+
+
+# 知识点：排序口径的单一来源 —— 序号重排的顺序必须与**展示**顺序一致，所以调
+#   ``order_tasks`` 而不是自己写 ``order_by``；否则一处按日期排、一处按主键排
+#   （第3章 Agent进阶·工具可靠性）
+async def reindex_day(session: AsyncSession, *, plan_id: int, day: date) -> int:
+    """把某一天的任务按全库统一口径重新编号，返回当日任务数。
+
+    ``plan_edit`` 新增任务时用「当日已有任务数」当序号且没有唯一约束，因此顺延把
+    任务收拢到某天后，序号会与当天既有任务重复。重排比加唯一约束便宜：
+    约束会在既有数据上直接建不起来，而序号本来就是展示用的派生值。
+    """
+
+    tasks = list(
+        await session.scalars(
+            order_tasks(
+                select(StudyTask).where(
+                    StudyTask.plan_id == plan_id, StudyTask.planned_date == day
+                )
+            )
+        )
+    )
+    for position, task in enumerate(tasks):
+        task.order_index = position
+    if tasks:
+        await session.flush()
+    return len(tasks)
+
+
 async def update_plan_fields(
     session: AsyncSession,
     *,
@@ -288,6 +350,13 @@ async def _apply_op(
         moved = await reschedule_pending_tasks(session, plan=plan, shift_days=op.shift_days)
         direction = "后移" if op.shift_days >= 0 else "前移"
         return f"未完成任务整体{direction} {abs(op.shift_days)} 天（{moved} 个）", moved > 0
+
+    if op.action is RevisionAction.DEFER_UNFINISHED:
+        target = utc_today() + timedelta(days=op.defer_days)
+        moved = await defer_unfinished_tasks(session, plan=plan, target_date=target)
+        if not moved:
+            return "当前没有逾期未完成的任务需要顺延", False
+        return f"把 {moved} 个逾期任务顺延到 {target.isoformat()}", True
 
     updated = await update_plan_fields(
         session,

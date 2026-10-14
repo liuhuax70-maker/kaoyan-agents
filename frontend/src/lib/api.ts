@@ -208,6 +208,13 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  /** 一键顺延：把逾期未完成的任务挪到今天 */
+  deferPlan: (planId: number, targetDate?: string) =>
+    request<{ moved: number; target_date: string }>(`/api/plans/${planId}/defer`, {
+      method: 'POST',
+      body: JSON.stringify({ target_date: targetDate ?? null }),
+    }),
+
   // ---- 对话 ----
   chat: (userId: number, message: string, conversationId?: number | null, enableReview = false) =>
     request<ChatResponse>('/api/chat', {

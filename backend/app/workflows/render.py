@@ -21,6 +21,7 @@ ACTION_LABELS: dict[RevisionAction, str] = {
     RevisionAction.UPDATE_TASK: "调整任务",
     RevisionAction.REMOVE_TASK: "删除任务",
     RevisionAction.SHIFT_TASKS: "平移进度",
+    RevisionAction.DEFER_UNFINISHED: "顺延逾期任务",
     RevisionAction.UPDATE_META: "更新计划信息",
 }
 
@@ -115,6 +116,9 @@ def _describe_revision_op(op: PlanRevisionOp) -> str:
     if op.action is RevisionAction.SHIFT_TASKS:
         direction = "后移" if op.shift_days >= 0 else "前移"
         return f"{label}：未完成任务整体{direction} {abs(op.shift_days)} 天"
+    if op.action is RevisionAction.DEFER_UNFINISHED:
+        target = "今天" if op.defer_days == 0 else f"今天起第 {op.defer_days} 天"
+        return f"{label}：把逾期未完成的任务顺延到{target}"
     return f"{label}：{op.plan_title or op.plan_goal or op.plan_strategy}"
 
 

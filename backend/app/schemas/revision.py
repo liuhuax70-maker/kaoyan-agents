@@ -26,6 +26,13 @@ class RevisionAction(StrEnum):
     SHIFT_TASKS = "shift_tasks"
     """把未完成任务的日期整体平移。"""
 
+    DEFER_UNFINISHED = "defer_unfinished"
+    """把**已逾期且未完成**的任务顺延到同一天。
+
+    与 ``SHIFT_TASKS`` 的区别是这条的要害：整体平移会把今天与未来的任务一起推走，
+    逾期量分毫不变；这里只收拢已经掉队的那些。
+    """
+
     UPDATE_META = "update_meta"
     """修改计划标题、目标或策略。"""
 
@@ -71,6 +78,15 @@ class PlanRevisionOp(BaseModel):
 
     # ---- 整体平移 ----
     shift_days: int = Field(default=0, ge=-365, le=365, description="仅 shift_tasks 生效")
+
+    # ---- 顺延逾期任务 ----
+    # 知识点：别让模型做它看不见的日期减法 —— ``day_offset`` 是「相对计划开始日」，
+    #   而提示词里没有「今天是几号」，模型算不出「明天是计划的第几天」
+    #   （第2章 LangChain核心组件·结构化输出）
+    # 因此顺延单独给一个相对**今天**的天数：0 = 今天，1 = 明天，模型只需吐一个小整数。
+    defer_days: int = Field(
+        default=1, ge=0, le=365, description="仅 defer_unfinished 生效：相对今天往后顺延几天"
+    )
 
     # ---- 计划级 ----
     plan_title: str = Field(default="", max_length=80)

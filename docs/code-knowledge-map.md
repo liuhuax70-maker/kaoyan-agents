@@ -491,14 +491,68 @@ Pydantic v2 的 `from_attributes` 会遵循 `validation_alias`，且序列化仍
 课表的价值就在位置说明安排，硬塞会让用户以为那是他计划好的时段；
 留一行反而把「这些还没排」讲清楚了。
 
+## 阶段 10：一键顺延 + 逾期话术软化 + 文档收尾
+
+规格里「需要提醒用户也无需太严格执行，可以稍微动态的进行规划」这一句，本阶段落成
+两件具体的事：**逾期任务可以一键顺延到今天**（按钮保证可用，聊天多一种说法），
+以及**把提醒的框架从「催办」改成「邀请」**。两者汇入同一个服务函数
+`defer_unfinished_tasks`，因此按钮与聊天不可能给出不同的结果。
+
+| 代码位置 | 板块 | 知识点 | 文档定位 | 一句话原理 |
+| --- | --- | --- | --- | --- |
+| `services/plan_edit.py` · `defer_unfinished_tasks` / `reindex_day` | 排序口径 | 复用统一排序口径而不是就地重排 | 第3章 Agent 进阶·工具可靠性 | 顺延把任务收拢到某天后必须重排序号，而重排的顺序必须与**展示**顺序一致；调 `order_tasks` 而不是自己写 `order_by`，两处口径才不会一个按日期排、一个按 id 排 |
+| `schemas/revision.py` · `defer_days` | 结构化输出 | 别让模型做它看不见的日期减法 | 第2章 LangChain 核心组件·结构化输出 | `day_offset` 的口径是「相对计划开始日」，但提示词里没有「今天是几号」，模型算不出「明天是计划的第几天」；顺延因此单独给一个相对**今天**的天数，模型只需吐一个小整数 |
+| `agents/tools.py` · `revise_plan`、`schemas/revision.py` · `DEFER_UNFINISHED` | 工具调用 | 新能力折进既有工具，而不是加工工具 | 第3章 Agent 进阶·工具可靠性 | `SubagentTool` 的契约是单参数 `instruction: str`，加一个工具要同时改三处协议；顺延与「改计划」本来就是同一件事的不同说法，折进 `revise_plan` 的既有单参通道即可，零协议改动 |
+
+### 本阶段的验证点
+
+- `tests/test_services.py::test_defer_moves_only_overdue_unfinished` —— 逾期未完成、
+  逾期已完成、今天待办、未来待办四个任务一起摆好，只有第一个允许移动；
+  并断言收拢后当日的 `order_index` 是 `[0, 1]`（不撞号）。
+- `tests/test_api.py::test_defer_api_endpoint` —— 按钮那条路：返回挪了几条，
+  且顺延后列表里再没有早于今天的任务。
+- `tests/test_api.py::test_chat_defer_request_uses_the_same_path` —— 聊天里说
+  「把没做完的顺延到明天」走同一条路径，且落到**明天**（而不是计划的某一天）。
+- `tests/test_tasks.py::test_overdue_nudge_language_is_invitational` —— 逾期提醒的正文
+  要含顺延提示、不含施压措辞；并断言**提示词**里也写明了「一键顺延到明天」，
+  否则语气再客气也还是在描述欠账。
+
+### 一处刻意的取舍（记录原因）
+
+**顺延的目标日期是「相对今天」，不是「相对计划开始日」。** 计划原文写的是
+`plan.start_date + timedelta(days=op.day_offset)`，但那要求模型知道「今天是计划的第几天」，
+而提示词里只有起止日期与每条的 `planned_date`，**没有今天** —— 让模型去减就是让它猜。
+顺延本质上是相对此刻的动作，因此新增 `defer_days`（0 = 今天，1 = 明天）。
+同一条替换也顺手去掉了「整份计划被一起推走」那种副作用。
+
+**`defer_unfinished_tasks` 刻意不调 `refresh_stage_completion`。** 任务状态没变，
+完成度就不会变，刷新只是白跑一次聚合查询。`reschedule_pending_tasks` 不调也是同理，
+这里把这个「为什么不调」写进文档字符串，免得将来有人以为是漏了。
+
+**提醒话术的软化没有单列知识点行。** 它是「语气」而非某个课程概念：改的是
+`COACH_ROLE.extra_rules` 里的一行（邀请式表达、禁止施压措辞、告知可以顺延）与
+`render_reminder` 里的一句明文。按「对不上就不标」处理，只在本节记录。
+
+**测试里的「今天」必须用 `utc_today()`，不是 `date.today()`。** 写本阶段的用例时实测到了
+这个坑：服务端的日界是 UTC（`app.core.timeutil.utc_today`），而 `tests/test_api.py` 顶部
+原来是 `date.today()`（本地）。服务器跑在 UTC、用户在 UTC+8 时，两者在凌晨差一天，
+顺着本地日期写断言会在特定时段随机变红。`test_api.py` 因此新增 `UTC_TODAY` 常量与说明。
+
+**已知问题（本阶段记录，不在本轮修复）：日界口径不统一。** Celery 用
+`timezone="Asia/Shanghai"` 且 `enable_utc=False`，也就是按东八区的**小时**触发；而
+`utc_today()` 算的是 UTC 的**日期**。早上 8 点的每日提醒因此可能拿到「UTC 的昨天」——
+对 UTC+8 的用户来说，08:00 本地时间仍是 UTC 的前一天 00:00 之后，两者会错一天。
+这不是本阶段引入的，修它要同时动调度与全部取「今天」的地方，
+且要先决定产品口径是「用户的今天」还是「服务器的今天」；已记在这里，避免下次重新发现。
+
 ## 按章节反查代码
 
 文档落库后按章节复习时，从这里进入比按文件翻更快。
 
 | 章节 | 涉及文件 |
 | --- | --- |
-| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/schemas/plan.py`、`app/schemas/common.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`app/agents/school.py`、`app/services/scheduling.py`、`tests/fakes.py` |
-| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py`、`app/services/snapshots.py`（`consecutive_zero_days`）、`app/services/scheduling.py`（`order_tasks`） |
+| 第2章 LangChain 核心组件 | `app/schemas/subagent.py`、`app/schemas/school.py`、`app/schemas/plan.py`、`app/schemas/common.py`、`app/schemas/revision.py`、`app/llm/tasks.py`、`app/llm/factory.py`、`app/llm/structured.py`、`app/prompts/templates.py`、`app/prompts/context.py`、`app/workflows/chat_agent.py`、`app/schemas/workflow.py`、`app/agents/nudge.py`、`app/agents/school.py`、`app/services/scheduling.py`、`tests/fakes.py` |
+| 第3章 Agent 进阶 | `app/workflows/chat_agent.py`、`app/workflows/state.py`、`app/services/conversations.py`、`app/prompts/context.py`、`app/agents/tools.py`、`app/services/snapshots.py`（`consecutive_zero_days`）、`app/services/scheduling.py`（`order_tasks`）、`app/services/plan_edit.py`（`defer_unfinished_tasks`） |
 | 第4章 RAG Agent | `app/knowledge/*`、`app/search/*`、`app/prompts/context.py`（`render_retrieved` / `render_web_intel`）、`app/prompts/catalog.py`（`SCHOOL_ADVISOR_ROLE`）、`app/workflows/nodes.py`（`_run_school_advisor`）、`app/agents/school.py`、`frontend/src/components/AgentAnswer.tsx`、`frontend/src/components/Markdown.tsx`、`frontend/src/components/ReminderPanel.tsx` |
 | 第5章 LangGraph | `app/workflows/state.py`、`graph.py`、`nodes.py`、`runner.py`、`chat_agent.py`、`checkpoint.py`、`app/services/conversations.py`、`frontend/src/lib/sse.ts`、`frontend/src/components/ChatPanel.tsx`、`frontend/src/components/ConfirmationCard.tsx` |
 
