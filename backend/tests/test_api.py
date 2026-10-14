@@ -55,14 +55,14 @@ async def _create_user(client: AsyncClient, username: str = "xiaoyan") -> int:
     return int(response.json()["id"])
 
 
-async def _create_target(client: AsyncClient, user_id: int) -> int:
+async def _create_target(client: AsyncClient, user_id: int, *, school: str = "复旦大学") -> int:
     response = await client.post(
         "/api/targets",
         json={
             "user_id": user_id,
             "exam_type": "postgraduate",
             "title": "复旦计算机",
-            "target_school": "复旦大学",
+            "target_school": school,
             "exam_date": (TODAY + timedelta(days=200)).isoformat(),
             "subjects": [
                 {"name": "数学", "is_weak": True, "score_weight": 0.3},
@@ -501,6 +501,45 @@ async def test_reminder_run_endpoint(client: AsyncClient) -> None:
     assert (
         await client.post("/api/reminders/run", params={"kind": "unknown"})
     ).status_code == 400
+
+
+async def test_school_brief_reminder_uses_candidates_and_official_links(
+    client: AsyncClient,
+) -> None:
+    """择校落库的候选院校成为简报素材，且核验入口必须可点、可查。
+
+    这条用例串起阶段 7 与阶段 8 的完整链路：聊天 → 参谋产出候选 → 落成 watch-list
+    → 每日简报把官方入口拼进正文。链接不来自模型，因此即使联网搜索关着也必须在场。
+    """
+
+    user_id = await _create_user(client, username="brief_owner")
+    # 刻意留空目标院校：这样「参谋没有替用户拍板」才是可验证的
+    target_id = await _create_target(client, user_id, school="")
+
+    advice = await client.post(
+        "/api/chat",
+        json={"user_id": user_id, "message": "帮我看看该选哪个学校，我本科双非"},
+    )
+    assert advice.status_code == 200, advice.text
+    assert "advise_schools" in {item["name"] for item in advice.json()["tool_calls"]}
+
+    schools = (await client.get(f"/api/targets/{target_id}/schools")).json()
+    assert len(schools) >= 3, "择校参谋应当把多所候选落成可跟踪的 watch-list"
+    # 「不替用户决定」在数据上是可验证的：参谋只写 candidate，目标院校仍是空的
+    assert {item["status"] for item in schools} == {"candidate"}
+    target = (await client.get(f"/api/targets/{target_id}")).json()
+    assert target["target_school"] == ""
+
+    response = await client.post("/api/reminders/run", params={"kind": "school_brief"})
+    assert response.status_code == 200, response.text
+    assert response.json()["generated"] == 1
+
+    reminders = (await client.get("/api/reminders", params={"user_id": user_id})).json()
+    brief = [item for item in reminders if item["reminder_type"] == "school_brief"]
+    assert brief
+    # 核验入口是确定性拼出来的 markdown 链接，不依赖联网搜索是否可用
+    assert "yz.chsi.com.cn" in brief[0]["content"]
+    assert "](http" in brief[0]["content"]
 
 
 async def test_overview_exposes_roles_and_workflow(client: AsyncClient) -> None:
