@@ -11,29 +11,64 @@
 | 进度跟踪 | 任务打卡、完成度统计、阶段体检 | 进度跟踪 |
 | 提醒督促 | 定时巡检、逾期催办、每日日报与周报复盘 | 提醒督促 |
 | 提示词体系 | 各智能体独立 system prompt + 结构化输出约束 | **智能体提示词设计** |
-| 工作流编排 | 聊天 Agent 以 Subagents 模式调度 7 个子智能体工具并统一总结 | **任务工作流编排** |
+| 工作流编排 | LangGraph 单一编排层；聊天 Agent 以 Subagents 模式调度 7 个子智能体工具，自身回答即最终回答 | **任务工作流编排** |
 | 学习数据管理 | 用户、目标、科目、计划、任务、进度、提醒的完整建模 | **用户学习数据管理** |
 
 ## 多智能体架构（Subagents 模式）
 
-用户只与**聊天 Agent** 对话。各板块的能力以「工具」形式暴露，调用哪些、按什么顺序、各调用几次，全部由聊天 Agent 决定，最后统一总结成一份回答。
+用户只与**聊天 Agent** 对话。各板块的能力以「工具」形式暴露，调用哪些、按什么顺序、各调用几次，全部由聊天 Agent 自己决定；它的回答就是最终回答，不再有第二次总结。
+
+### 编排拓扑
+
+图由 `backend/app/workflows/graph.py` 编译，5 个节点、1 处条件边：
 
 ```
-用户消息
-  └─ 聊天 Agent（唯一对话入口）
-       ├─ generate_plan        → 备考规划师
-       ├─ breakdown_tasks      → 任务拆解师
-       ├─ explain_concept      → 答疑讲师（含知识库检索）
-       ├─ review_progress      → 复盘诊断师
-       ├─ recommend_resources  → 资料规划师
-       ├─ send_nudge           → 督学教练
-       └─ revise_plan          → 计划修订师
-  └─ 统一总结（ChatSummary）
+START
+ └─▶ prepare_context     载入考生画像 / 当前计划 / 会话历史
+      └─▶ chat_agent      工具调用循环；最终回答逐 token 流出
+            ├─(有 plan_draft 且开启评审)─▶ review_plan
+            └────────────────────────────▶ confirm_plan
+                                            └─▶ finalize ─▶ END
 ```
 
-- **工具注册表**：`backend/app/agents/tools.py` 是唯一事实来源，新增子智能体只需登记一条。
-- **两条执行路径**：配置了密钥走原生 tool calling（`bind_tools` + `ToolMessage` 回灌）；未配置密钥走关键词规则挑选工具，两条路径产出的状态结构完全一致，下游无需区分。
+- **子智能体**（`backend/app/agents/tools.py` 是唯一事实来源，新增只需登记一条）：
+
+  | 工具 | 子智能体 | 说明 |
+  | --- | --- | --- |
+  | `generate_plan` | 备考规划师 | 生成分阶段计划 |
+  | `breakdown_tasks` | 任务拆解师 | 阶段目标 → 可打卡任务 |
+  | `explain_concept` | 答疑讲师 | 含知识库检索 |
+  | `review_progress` | 复盘诊断师 | 进度体检与风险 |
+  | `recommend_resources` | 资料规划师 | 资料与资源建议 |
+  | `send_nudge` | 督学教练 | 督促提醒 |
+  | `revise_plan` | 计划修订师 | 产出计划修订提案 |
+
+- **双轨输出**：每个子智能体回灌给聊天 Agent 的是 `SubagentReply[T]` —— `narrative`（完整 markdown 正文）+ `data`（结构化产物）。正文直接进模型上下文，因此解题步骤与易错点原文能到达用户；结构化产物驱动落库与卡片渲染。
+- **评审**：`review_plan` 节点复用 `PlanReviewResult` 与 `REVIEWER_ROLE`，由条件边触发，已从 CrewAI 迁为图节点。
 - **图谱保持无副作用**：子智能体只产出结构化结果，落库由服务层在图执行完成后统一处理，因此工作流可以脱离数据库单测。
+
+### 三项产品能力
+
+| 能力 | 实现位置 | 说明 |
+| --- | --- | --- |
+| 多轮记忆 | `workflows/chat_agent.py` · `_history_messages` | 服务层从 `agent_messages` 取出被裁剪的历史，以真实 `HumanMessage`/`AIMessage` 序列插入 system 之后；图本身不读数据库 |
+| 真·token 流式 | `workflows/runner.py` · `stream_workflow` | `astream(stream_mode=["custom","values"])`：`custom` 收聊天 Agent 逐字推出的 `token`，`values` 收 `outputs` / `events` / `tool_call` 增量 |
+| 落库前人工确认 | `workflows/graph.py` · `confirm_plan` | 存在 `plan_draft` / `plan_revision` 时调用 `interrupt()` 暂停，**一个字都不写库**；`POST /api/chat/confirm` 以 `Command(resume=...)` 从原处恢复 |
+
+确认能力与检查点同开关：挂载 checkpointer 才有暂停与恢复（`workflows/checkpoint.py`，开发用 SQLite、生产用 PostgreSQL）。`thread_id` 是**一轮对话一条线程**（`"{conversation_id}:{message_id}"`）而非一个会话一条 —— 线程状态是累加的，复用会话 ID 会把上一轮的产出与待确认计划续到这一轮。原因详见 [docs/code-knowledge-map.md](docs/code-knowledge-map.md) 阶段 4 的偏差记录。
+
+### SSE 事件
+
+| 事件 | 载荷 | 时机 |
+| --- | --- | --- |
+| `start` | `conversation_id` | 会话就绪 |
+| `progress` | `node` / `status` / `detail` | 节点或子智能体开始执行 |
+| `tool_call` | `name` / `agent` / `label` | 聊天 Agent 调起某个子智能体工具（调用链的权威来源） |
+| `output` | `output: AgentOutput` | 子智能体产出结构化结果 |
+| `token` | `text` | 最终回答的逐字增量 |
+| `done` | `reply` / `agents` / `tool_calls` / `plan_id` / … | 本次执行完成 |
+| `awaiting_confirmation` | `reply` / `confirmation` / … | 停在确认闸门上，**不会再有 `done`** |
+| `error` | `message` | 失败收尾 |
 
 ### 计划表的两条修改路径
 
@@ -46,12 +81,12 @@
 
 ## 技术栈
 
-- **智能体**：LangGraph（工作流状态机编排）+ LangChain + CrewAI（角色分工）
+- **智能体**：LangGraph（唯一编排层，Subagents 模式）+ LangChain（仅用 `langchain-openai` 做模型适配）
 - **后端**：FastAPI + SQLAlchemy(async) + Alembic
 - **存储**：PostgreSQL（业务数据）+ Redis（缓存/消息队列）+ Milvus（向量检索）
 - **异步任务**：Celery + Redis Beat（定时督促）
 - **大模型**：DeepSeek（默认）+ Ollama（本地备选），统一走 OpenAI 兼容适配层
-- **前端**：Next.js（React）
+- **前端**：Next.js（React）+ react-markdown（助手正文为 markdown，需真实解析）
 - **可观测性**：LangFuse
 - **部署**：Docker / Docker Compose
 
@@ -68,19 +103,19 @@ kaoyan-agents/
 │   │   ├── cache/              # Redis 客户端
 │   │   ├── schemas/            # 智能体输入快照与结构化输出
 │   │   ├── prompts/            # 智能体提示词与角色定义
-│   │   ├── llm/                # 模型工厂、结构化解析、离线兜底
+│   │   ├── llm/                # 模型工厂与结构化输出解析
 │   │   ├── agents/             # 子智能体工具注册表
-│   │   ├── workflows/          # LangGraph 编排（聊天 Agent + 工具循环）
-│   │   ├── crews/              # CrewAI 多角色协作
+│   │   ├── workflows/          # LangGraph 编排（5 节点图 + 工具循环 + 检查点）
 │   │   ├── knowledge/          # 向量库与 RAG 检索
 │   │   ├── tasks/              # Celery 定时任务
 │   │   └── api/                # FastAPI 路由
 │   ├── alembic/                # 数据库迁移
 │   ├── scripts/                # 基础设施自检与端到端冒烟脚本
-│   └── tests/
+│   └── tests/                  # fakes.py 提供假模型 / 假向量化 / 内存检查点
+├── docs/                       # 设计与参照文档，见下方「文档」
 └── frontend/                   # Next.js 工作台
     ├── src/app/                # 多智能体对话 / 学习计划
-    ├── src/components/         # 面板、智能体回答与基础 UI
+    ├── src/components/         # 面板、markdown 正文、确认卡片与基础 UI
     └── src/lib/                # 接口封装、SSE 解析与类型定义
 ```
 
@@ -114,12 +149,13 @@ uvicorn app.main:app --reload --port 8000
 
 ### 3. 无 Docker 的本地开发
 
-配置体系内置兜底，可在没有 Docker、没有大模型密钥的情况下完整跑通测试：
+配置体系内置兜底，可在没有 Docker 的情况下跑通数据库、缓存与测试：
 
 - `DATABASE__URL=sqlite+aiosqlite:///./data/kaoyan.db`
 - `VECTOR__BACKEND=local`（本地向量兜底实现，不依赖 Milvus）
 - `CELERY__TASK_ALWAYS_EAGER=true`
-- `LLM__DEFAULT_PROVIDER=stub`（离线桩，无需密钥）
+- `EMBEDDING__PROVIDER=ollama`（本地真实语义检索；无 Ollama 时检索自动降级为空结果）
+- `LLM__DEFAULT_PROVIDER=ollama`（本地模型；测试用 `tests/fakes.py` 的假模型，不依赖密钥）
 
 ### 4. 启动前端工作台
 
@@ -236,6 +272,7 @@ npm config set registry https://registry.npmmirror.com
 | POST | `/api/plans/{id}/tasks` | 新增任务（用户直接编辑计划表） |
 | POST | `/api/chat` | 多智能体对话 |
 | POST | `/api/chat/stream` | 多智能体对话（SSE 流式） |
+| POST | `/api/chat/confirm` | 确认或驳回待落库的计划（`interrupt` 恢复） |
 | GET | `/api/chat/conversations?user_id=` | 会话列表与详情 |
 | GET | `/api/reminders?user_id=` | 提醒记录 |
 | POST | `/api/reminders/run?kind=` | 手动触发一轮提醒（联调与演示） |
@@ -248,6 +285,17 @@ npm config set registry https://registry.npmmirror.com
 
 交互式文档：http://localhost:8000/docs
 
+## 文档
+
+| 文档 | 内容 | 什么时候看 |
+| --- | --- | --- |
+| [docs/backend-refactor-plan.md](docs/backend-refactor-plan.md) | Subagents 架构收敛的根因诊断、目标架构、分阶段方案与风险表 | 想了解「为什么是现在这个形状」 |
+| [docs/code-knowledge-map.md](docs/code-knowledge-map.md) | 代码 ↔ 知识点的全量对照表，附按课程章节反查代码的索引 | 复习知识点、面试答辩时定位实现 |
+
+源码里每个函数/类上方都有一到两行 `# 知识点：…（第X章 …）` 标注，格式与取用规则见
+[code-knowledge-map.md 的开头](docs/code-knowledge-map.md)。对照表按重构阶段分节，
+前五节对应阶段 0–4。
+
 ## 开发节点
 
 | 节点 | 内容 | 状态 |
@@ -256,10 +304,11 @@ npm config set registry https://registry.npmmirror.com
 | 2 | 学习数据模型与 Alembic 迁移 | 已完成 |
 | 3 | 智能体提示词体系与结构化输出 | 已完成 |
 | 4 | LangGraph 任务工作流编排 | 已完成 |
-| 5 | CrewAI 多角色协作（计划评审） | 已完成 |
+| 5 | 计划评审（已从 CrewAI 迁为 LangGraph 图节点） | 已完成 |
 | 6 | Milvus 向量库与 RAG 检索 | 已完成 |
 | 7 | Celery 提醒督促定时任务 | 已完成 |
 | 8 | FastAPI 业务接口层（含 SSE 流式） | 已完成 |
 | 9 | LangFuse 可观测性接入 | 已完成 |
 | 10 | Next.js 前端工作台 | 已完成 |
 | 11 | 测试、镜像与部署文档 | 已完成 |
+| 12 | 架构收敛重构（Subagents v2）：单一编排层、双轨输出、多轮记忆、token 流式、计划确认 | 已完成 |
